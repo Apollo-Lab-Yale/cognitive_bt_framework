@@ -1,0 +1,2 @@
+setuptools==59.6.0
+transformers==4.34.0
