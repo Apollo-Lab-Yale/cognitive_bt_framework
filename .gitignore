@@ -147,3 +147,4 @@ cython_debug/
 # Others
 .DS_Store
 Thumbs.db
+*.db
