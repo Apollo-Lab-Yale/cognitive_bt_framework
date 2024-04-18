@@ -1,12 +1,13 @@
 from llm_htn_task_decomp.src.llm_interface.llm_interface_openai import LLMInterface
-from llm_htn_task_decomp.utils.db_utils import setup_database
+from llm_htn_task_decomp.utils.htn_db_utils import setup_database
 from cachetools import LRUCache
 
 import sqlite3
 import os
 from cachetools import LRUCache
 from datetime import datetime
-
+from transformers import AutoTokenizer, AutoModel
+import torch
 
 class HTNPlanner:
     def __init__(self, llm_interface=None, db_path='./task_decomposition.db'):
@@ -15,32 +16,67 @@ class HTNPlanner:
         self.cache = LRUCache(maxsize=100)  # Adjust maxsize based on expected workload
         if not os.path.exists(self.db_path):
             setup_database(self.db_path)
+        self.embedding_tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
+        self.embedding_model = AutoModel.from_pretrained("bert-base-uncased")
+        self.task_embeddings = {}
+        self.similarity_threshold = 0.0
 
     def connect_db(self):
         return sqlite3.connect(self.db_path)
 
-    def decompose_task(self, task_name):
-        if task_name in self.cache:
-            return self.cache[task_name]
+    def get_nl_embedding(self, text):
+        inputs = self.embedding_tokenizer(text, return_tensors="pt", padding=True, truncation=True, max_length=512)
+        outputs = self.embedding_model(**inputs)
+        return outputs.pooler_output[0]
 
-        decomposition = None
+    def find_closest_task(self, input_text):
+        input_embedding = self.get_nl_embedding(input_text)
+        similarities = {task: torch.cosine_similarity(input_embedding, emb, dim=0).item() for task, emb in
+                        self.task_embeddings.items()}
+        print(similarities)
+        if len(list(similarities.keys())) == 0:
+            return None
+        best_match = max(similarities, key=similarities.get)
+        print(best_match)
+        if self.similarity_threshold > similarities[best_match]:
+            return None
+        return best_match
+
+    def decompose_task(self, task_name):
         with self.connect_db() as conn:
             cursor = conn.cursor()
+
+            # Check if the task exists and get its ID
+            cursor.execute("SELECT TaskID FROM Tasks WHERE TaskName = ?", (task_name,))
+            task_id_row = cursor.fetchone()
+
+            if task_id_row is None:
+                # If the task doesn't exist, insert it into Tasks table first
+                cursor.execute("INSERT INTO Tasks (TaskName) VALUES (?)", (task_name,))
+                task_id = cursor.lastrowid  # Get the ID of the newly inserted task
+            else:
+                task_id = task_id_row[0]
+
+            # Now, proceed to handle the decomposition with the valid TaskID
             cursor.execute(
-                "SELECT DecompositionText FROM Decompositions JOIN Tasks ON Decompositions.TaskID = Tasks.TaskID WHERE TaskName = ?",
-                (task_name,))
+                "SELECT DecompositionText FROM Decompositions WHERE TaskID = ?",
+                (task_id,))
             row = cursor.fetchone()
+
             if row:
                 decomposition = row[0]
             else:
                 if self.llm_interface:
-                    decomposition = self.llm_interface.get_task_decomposition(task_name)
-                    # Assuming a task has already been added to Tasks table
+                    decomposition_text = self.llm_interface.get_task_decomposition(task_name)
+                    decomposition = decomposition_text.split('\n')
+
+                    # Insert the new decomposition now that you have a valid TaskID
                     cursor.execute(
-                        "INSERT INTO Decompositions (TaskID, DecompositionText, CreationDate, CreatedBy) VALUES ((SELECT TaskID FROM Tasks WHERE TaskName = ?), ?, ?, 'system')",
-                        (task_name, decomposition, datetime.now()))
+                        "INSERT INTO Decompositions (TaskID, DecompositionText, CreationDate, CreatedBy) VALUES (?, ?, ?, 'system')",
+                        (task_id, decomposition_text, datetime.now()))
 
             self.cache[task_name] = decomposition  # Cache the decomposition
+            conn.commit()
         return decomposition
 
     def store_feedback(self, task_name, user_id, feedback):
@@ -124,4 +160,6 @@ if __name__ == "__main__":
     planner = HTNPlanner(llm_interface)
 
     # Decompose a task using the LLM (assuming the LLM interface can handle this task)
-    print(planner.decompose_task("plan a team building event"))
+    print(planner.decompose_task("clean the kitchen"))
+
+    print(planner.find_closest_task("organize an event to help build friendships for the team"))

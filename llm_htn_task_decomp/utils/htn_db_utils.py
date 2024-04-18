@@ -15,7 +15,6 @@ def setup_database(db_path):
     # Create Decompositions table
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS Decompositions (
-        DecompositionID INTEGER PRIMARY KEY,
         TaskID INTEGER NOT NULL,
         DecompositionText TEXT,
         CreationDate TEXT,
