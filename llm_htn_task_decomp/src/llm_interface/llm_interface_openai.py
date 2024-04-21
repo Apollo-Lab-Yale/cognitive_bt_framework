@@ -130,8 +130,13 @@ class LLMInterface:
         return refined_behavior_tree_xml
 
 if __name__ == "__main__":
-    # Example usage
-    llm_interface = LLMInterface()
-    task = "Clean the kitchen"
-    decomposition = llm_interface.get_task_decomposition(task)
-    print(decomposition)
+    if __name__ == "__main__":
+        # Example usage
+        llm_interface = LLMInterface()
+        task = "Clean the kitchen"
+        bt_xml = llm_interface.get_behavior_tree(task)
+        print(bt_xml)
+        # Assuming some feedback was received
+        feedback = "The robot fails to find the sink."
+        refined_bt_xml = llm_interface.refine_behavior_tree(task, bt_xml, feedback)
+        print(refined_bt_xml)
