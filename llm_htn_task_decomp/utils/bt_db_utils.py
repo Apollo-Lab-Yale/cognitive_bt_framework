@@ -7,7 +7,7 @@ def setup_database(db_path):
     # Create Tasks table
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS Tasks (
-        TaskID INTEGER PRIMARY KEY,
+        TaskID STRING PRIMARY KEY,
         TaskName TEXT NOT NULL,
         InitialDescription TEXT
     )''')
@@ -15,7 +15,8 @@ def setup_database(db_path):
     # Create BehaviorTrees table to replace Decompositions
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS BehaviorTrees (
-        TaskID INTEGER NOT NULL,
+        BehaviorTreeID INTEGER PRIMARY KEY,
+        TaskID STRING NOT NULL,
         BehaviorTreeXML TEXT,
         CreationDate TEXT,
         CreatedBy TEXT,
@@ -30,7 +31,7 @@ def setup_database(db_path):
         UserID TEXT,
         FeedbackText TEXT,
         FeedbackDate TEXT,
-        FOREIGN KEY (BehaviorTreeID) REFERENCES BehaviorTrees (TaskID)
+        FOREIGN KEY (BehaviorTreeID) REFERENCES BehaviorTrees (BehaviorTreeID)
     )''')
 
     # Create BehaviorTreeAdjustments table
@@ -42,44 +43,28 @@ def setup_database(db_path):
         NewBehaviorTreeXML TEXT,
         AdjustmentReason TEXT,
         AdjustmentDate TEXT,
-        FOREIGN KEY (BehaviorTreeID) REFERENCES BehaviorTrees (TaskID)
+        FOREIGN KEY (BehaviorTreeID) REFERENCES BehaviorTrees (BehaviorTreeID)
     )''')
 
     conn.commit()
     conn.close()
 
-
-def add_task_and_behavior_tree(task_name, initial_description, bt_xml, created_by):
-    conn = sqlite3.connect('behavior_tree.db')
+def add_behavior_tree(conn, task_id, task_name, initial_description, bt_xml, created_by):
     cursor = conn.cursor()
 
-    # Insert the task
-    cursor.execute("INSERT INTO Tasks (TaskName, InitialDescription) VALUES (?, ?)", (task_name, initial_description))
-    task_id = cursor.lastrowid
+    # # Insert the task
+    # cursor.execute("INSERT INTO Tasks (TaskName, TaskID, InitialDescription) VALUES (?, ?, ?)", (task_name, task_id, initial_description))
+    # task_id = cursor.lastrowid
 
     # Insert the initial behavior tree
     cursor.execute("INSERT INTO BehaviorTrees (TaskID, BehaviorTreeXML, CreationDate, CreatedBy) VALUES (?, ?, datetime('now'), ?)", (task_id, bt_xml, created_by))
-
     conn.commit()
-    conn.close()
 
-def store_feedback(behavior_tree_id, user_id, feedback_text):
-    conn = sqlite3.connect('behavior_tree.db')
+def store_feedback(conn, behavior_tree_id, user_id, feedback_text):
     cursor = conn.cursor()
 
     cursor.execute("INSERT INTO Feedback (BehaviorTreeID, UserID, FeedbackText, FeedbackDate) VALUES (?, ?, ?, datetime('now'))", (behavior_tree_id, user_id, feedback_text))
-
     conn.commit()
-    conn.close()
-
-def store_feedback(behavior_tree_id, user_id, feedback_text):
-    conn = sqlite3.connect('behavior_tree.db')
-    cursor = conn.cursor()
-
-    cursor.execute("INSERT INTO Feedback (BehaviorTreeID, UserID, FeedbackText, FeedbackDate) VALUES (?, ?, ?, datetime('now'))", (behavior_tree_id, user_id, feedback_text))
-
-    conn.commit()
-    conn.close()
 
 def get_behavior_trees_with_feedback(task_id):
     conn = sqlite3.connect('behavior_tree.db')
@@ -88,7 +73,7 @@ def get_behavior_trees_with_feedback(task_id):
     cursor.execute('''
     SELECT b.BehaviorTreeXML, f.FeedbackText
     FROM BehaviorTrees b
-    LEFT JOIN Feedback f ON b.TaskID = f.BehaviorTreeID
+    LEFT JOIN Feedback f ON b.BehaviorTreeID = f.BehaviorTreeID
     WHERE b.TaskID = ?
     ''', (task_id,))
 
@@ -97,3 +82,11 @@ def get_behavior_trees_with_feedback(task_id):
         print("Feedback:", row[1] if row[1] else "No feedback yet", "\n")
 
     conn.close()
+
+# if __name__ == "__main__":
+#     setup_database('behavior_tree.db')
+#     with sqlite3.connect('behavior_tree.db') as conn:
+#         add_task_and_behavior_tree(conn, "Clean the kitchen", "Initial setup for cleaning the kitchen", "<root></root>", "system")
+#         behavior_tree_id = 1  # Assuming this ID was assigned
+#         store_feedback(conn, behavior_tree_id, "user1", "Feedback based on initial trial")
+#         get_behavior_trees_with_feedback(1)

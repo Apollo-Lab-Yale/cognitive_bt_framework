@@ -43,11 +43,13 @@ class LLMInterface:
         ]
         return prompt
 
-    def generate_behavior_tree_prompt(self, task):
+    def generate_behavior_tree_prompt(self, task, actions, example):
         """
         Generate a prompt specifically for creating a behavior tree in XML format.
         """
-        instruction = {"role": 'system', 'content': 'Create a behavior tree in XML format for a robot to execute a task. Each action should be clearly defined in XML tags.'}
+        instruction = {"role": 'system', 'content': 'Create a behavior tree in XML format for a robot to execute a task. '
+                                                    f'Each action should be clearly defined in XML tags, and should only come from this list: {actions}.'
+                                                    f' this is an example of a properly formed xmlBT: {example}'}
         message = {"role": "user", "content": f"Create a behavior tree for the task: {task}"}
         return [instruction, message]
 
@@ -113,15 +115,21 @@ class LLMInterface:
         return decomposition
 
 
-    def get_behavior_tree(self, task):
+    def get_behavior_tree(self, task, actions, example):
         """
         Get the behavior tree from the GPT model for a given task.
         """
-        prompt = self.generate_behavior_tree_prompt(task)
+        prompt = self.generate_behavior_tree_prompt(task, actions, example)
+
         behavior_tree_xml = self.query_llm(prompt)
+        for i in range(len(behavior_tree_xml)):
+            if behavior_tree_xml[i] == '<':
+                behavior_tree_xml = behavior_tree_xml[i:]
+                break
+        behavior_tree_xml = behavior_tree_xml.replace('```', '')
         return behavior_tree_xml
 
-    def refine_behavior_tree(self, task, original_bt_xml, user_feedback):
+    def refine_behavior_tree(self, task, actions, original_bt_xml, user_feedback):
         """
         Refine a behavior tree based on user feedback.
         """
@@ -130,13 +138,13 @@ class LLMInterface:
         return refined_behavior_tree_xml
 
 if __name__ == "__main__":
-    if __name__ == "__main__":
-        # Example usage
-        llm_interface = LLMInterface()
-        task = "Clean the kitchen"
-        bt_xml = llm_interface.get_behavior_tree(task)
-        print(bt_xml)
-        # Assuming some feedback was received
-        feedback = "The robot fails to find the sink."
-        refined_bt_xml = llm_interface.refine_behavior_tree(task, bt_xml, feedback)
-        print(refined_bt_xml)
+    from llm_htn_task_decomp.src.sim.ai2_thor.utils import AI2THOR_ACTIONS
+    # Example usage
+    llm_interface = LLMInterface()
+    task = "Clean the kitchen"
+    bt_xml = llm_interface.get_behavior_tree(task, AI2THOR_ACTIONS)
+    print(bt_xml)
+    # Assuming some feedback was received
+    feedback = "The robot fails to find the sink."
+    refined_bt_xml = llm_interface.refine_behavior_tree(task, bt_xml, feedback)
+    print(refined_bt_xml)

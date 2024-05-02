@@ -6,6 +6,30 @@ import numpy as np
 NO_VALID_PUT = "No valid positions to place object found"
 PUT_COLLISION = "another object's collision is blocking held object from being placed"
 
+AI2THOR_ACTIONS = [
+    'walk_to_room',
+    'walk_to_object',
+    'grab',
+    'turnleft',
+    'turnright',
+    'put',
+    'putin',
+    'open',
+    'close',
+    'cook',
+    'switchon',
+    'switchoff',
+    'slice',
+    'find',
+    'cut',
+    'moveforward',
+    'movebackward',
+    'turnaround',
+    'lookup',
+    'lookdown'
+]
+
+
 AI2THOR_PREDICATES = [
     'visible',
     'isInteractable',

@@ -1,13 +1,11 @@
-import cv2
 from ai2thor.controller import Controller
 import numpy as np
 import time
 import prior
-from PIL import Image
 import random
-from llm_htn_task_decomp.src.sim.utils import get_visible_objects, get_predicates, CLOSE_DISTANCE, find_closest_position, is_in_room, get_yaw_angle, get_vhome_to_thor_dict, get_inf_floor_polygon, \
+from llm_htn_task_decomp.src.sim.ai2_thor.utils import get_visible_objects, get_predicates, CLOSE_DISTANCE, find_closest_position, is_in_room, get_yaw_angle, get_vhome_to_thor_dict, get_inf_floor_polygon, \
     NO_VALID_PUT, Event, PUT_COLLISION
-from llm_htn_task_decomp.src.sim.image_saver import SaveImagesThread
+from llm_htn_task_decomp.src.sim.ai2_thor.image_saver import SaveImagesThread
 
 from llm_htn_task_decomp.utils.logic_utils import parse_instantiated_predicate
 def get_ithor_scene_single_room(room, index = -1):
@@ -490,3 +488,7 @@ class AI2ThorSimEnv:
         if success:
             to_remove.append(sub_goal)
         return success, to_remove
+
+if __name__ == '__main__':
+    sim = AI2ThorSimEnv()
+    print(sim.action_fn_from_str.keys())
