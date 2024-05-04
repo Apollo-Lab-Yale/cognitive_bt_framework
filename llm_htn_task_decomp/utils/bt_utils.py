@@ -4,13 +4,48 @@ BASE_EXAMPLE = '''
 <?xml version="1.0"?>
 <root>
   <selector>
-    <sequence name="Navigate to Sink">
-      <action name="Navigate_to_Room" target="kitchen"/>
-      <action name="Navigate_to_Object" target="sink"/>
+    <sequence name="Mug Washing Task">
+      <!-- Navigate to the kitchen -->
+      <action name="walk_to_room" target="kitchen"/>
+      <!-- Attempt to locate the sink -->
+      <selector name="Locate Sink">
+        <!-- Check if the sink is visible -->
+        <condition name="visible" target="sink"/>
+        <!-- If not visible, scan the room or adjust position -->
+        <sequence name="Adjust and Scan">
+          <action name="scan_room" target="sink"/>
+          <condition name="visible" target="sink"/>
+        </sequence>
+      </selector>
+      <!-- Navigate to the sink -->
+      <action name="walk_to_object" target="sink"/>
+      <!-- Ensure the mug is present and interactable -->
+      <condition name="isInteractable" target="mug"/>
+      <!-- Check if the mug is dirty -->
+      <condition name="isDirty" target="mug"/>
+      <!-- Pick up the mug -->
+      <action name="grab" target="mug"/>
+      <!-- Sequence to wash the mug -->
+      <sequence name="Washing Sequence">
+        <!-- Check if the sink is a receptacle -->
+        <condition name="receptacle" target="sink"/>
+        <!-- Check if the sink is toggleable -->
+        <condition name="toggleable" target="sink"/>
+        <!-- Check if the sink is filled with liquid -->
+        <condition name="isFilledWithLiquid" target="sink"/>
+        <!-- Open the sink -->
+        <action name="open" target="sink"/>
+        <!-- Wash the mug -->
+        <action name="putin" target="sink"/>
+        <!-- Close the sink -->
+        <action name="close" target="sink"/>
+      </sequence>
+      <!-- Put the clean mug aside -->
+      <action name="put" target="drying_rack"/>
     </sequence>
-    <action name="AlertHuman"/>
   </selector>
 </root>
+
 '''
 
 
@@ -30,31 +65,42 @@ class Action(Node):
     def execute(self, state, interface):
         # Logic to execute the action
         print(f"Executing action: {self.name}")
-        return interface.execute_actions(state, f"{self.name} {self.target}")# Modify and return the new state
+        return interface.execute_actions([f"{self.name} {self.target}"], state)# Modify and return the new state
 
 class Condition(Node):
-    def __init__(self, name, condition):
+    def __init__(self, name, target):
         super().__init__(name)
-        self.condition = condition
+        self.target = target
 
     def execute(self, state, interface):
         # Evaluate the condition against the state
-        return self.condition(state)
+        return interface.check_condition(self.name, self.target)
 
 class Selector(Node):
+    def __init__(self, name):
+        super().__init__(name)
+        self.failures = []
+
     def execute(self, state, interface):
         for child in self.children:
             success, msg = child.execute(state, interface)
-            if child.execute(state, interface):
-                return True
-        return False
+            if success:
+                return success, msg
+            self.failures.append(msg)
+        print(f"Selector {self.name} has {self.failures} failures")
+        return False, f"{self.name} failed due to the failures: {self.failures}"
 
 class Sequence(Node):
+    def __init__(self, name):
+        super().__init__(name)
+
     def execute(self, state, interface):
         for child in self.children:
-            if not child.execute(state, interface):
-                return False
-        return True
+            success, msg = child.execute(state, interface)
+            if not success:
+                print(f"Sequence {self.name} failed to execute any children due to the failures: {msg}")
+                return False, f"Sequence {self.name} failed to execute {child.name}: {msg}."
+        return True, ""
 
 
 
@@ -69,8 +115,8 @@ def parse_node(element):
         node = Action(element.get('name'), element.get('target'))
         return node
     elif node_type == "Condition":
-        condition = lambda state: eval(element.get('condition'))
-        return Condition(element.get('name'), condition)
+        target = element.get('target')
+        return Condition(element.get('name'), target)
     elif node_type in ["Selector", "Sequence"]:
         node_class = globals()[node_type]
         node = node_class(element.get('name'))

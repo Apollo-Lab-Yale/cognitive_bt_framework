@@ -34,36 +34,41 @@ class LLMInterface:
         and the user feedback to guide the LLM towards generating a refined task decomposition.
         """
         prompt = [
-            {"role": "system",
-             "content": "Based on the user feedback, refine the following task decomposition to improve clarity and completeness."},
-            {"role": "user", "content": f"Task: {task}"},
+            {"role": "system", "content": f"Task: {task}"},
             {"role": "system", "content": f"Original Decomposition: {original_decomposition}"},
-            {"role": "user", "content": f"User Feedback: {user_feedback}"},
-            {"role": "system", "content": "Refined Decomposition:"}
+            {"role": "system",
+             "content": "Based on the user feedback, refine the above task decomposition to improve clarity and completeness."},
+            {"role": "system", "content": f"User Feedback: {user_feedback}"},
+            {"role": "user", "content": "Refined Decomposition:"}
         ]
+        print(prompt)
         return prompt
 
-    def generate_behavior_tree_prompt(self, task, actions, example):
+    def generate_behavior_tree_prompt(self, task, conditions, actions, example):
         """
         Generate a prompt specifically for creating a behavior tree in XML format.
         """
         instruction = {"role": 'system', 'content': 'Create a behavior tree in XML format for a robot to execute a task. '
                                                     f'Each action should be clearly defined in XML tags, and should only come from this list: {actions}.'
+                                                    f'These are the possible predicates in the state that may apply to actions: {conditions}'
                                                     f' this is an example of a properly formed xmlBT: {example}'}
         message = {"role": "user", "content": f"Create a behavior tree for the task: {task}"}
+        print([instruction, message])
+
         return [instruction, message]
 
-    def generate_behavior_tree_refinement_prompt(self, task, original_bt_xml, user_feedback):
+    def generate_behavior_tree_refinement_prompt(self, task, original_bt_xml, feedback):
         """
         Generate a prompt to refine an existing behavior tree based on user feedback, in XML format.
         """
         prompt = [
-            {"role": "system", "content": "Refine the following behavior tree based on the user feedback to improve its execution."},
-            {"role": "user", "content": f"Task: {task}"},
+            {"role": "system", "content": f"Task: {task}"},
             {"role": "system", "content": f"Original Behavior Tree: {original_bt_xml}"},
-            {"role": "user", "content": f"User Feedback: {user_feedback}"},
-            {"role": "system", "content": "Refined Behavior Tree in XML:"}
+            {"role": "system",
+             "content": f"The above behavior tree failed due to {feedback}. Update the behavior tree to account for this failure."},
+            {"role": "user", "content": "Corrected Behavior Tree in XML:"}
         ]
+        print(prompt)
         return prompt
 
 
@@ -115,11 +120,11 @@ class LLMInterface:
         return decomposition
 
 
-    def get_behavior_tree(self, task, actions, example):
+    def get_behavior_tree(self, task, actions, conditions, example):
         """
         Get the behavior tree from the GPT model for a given task.
         """
-        prompt = self.generate_behavior_tree_prompt(task, actions, example)
+        prompt = self.generate_behavior_tree_prompt(task, actions, conditions, example)
 
         behavior_tree_xml = self.query_llm(prompt)
         for i in range(len(behavior_tree_xml)):

@@ -62,7 +62,8 @@ class AI2ThorSimEnv:
             "movebackward": self.move_back,
             "turnaround": self.turn_around,
             "lookup": self.look_up,
-            "lookdown": self.look_down
+            "lookdown": self.look_down,
+            "scanroom": self.handle_scan_room
         }
 
     def reset(self, scene_index=-1, width=600, height=600, gridSize=0.25, visibilityDistance=10, single_room='kitchen', save_video=False):
@@ -346,7 +347,7 @@ class AI2ThorSimEnv:
         return self.controller.step(action="DropHandObject",
                              forceAction=False)
 
-    def handle_scan_room(self, goal_obj, memory, pause_time = 0.5):
+    def handle_scan_room(self, goal_obj, pause_time = 0.5):
         print(f"scanning for object {goal_obj}")
         action = random.choice([self.turn_left, self.turn_right])
         for i in range(12):
@@ -357,9 +358,11 @@ class AI2ThorSimEnv:
             if not self.controller.last_event.metadata["lastActionSuccess"]:
                 return self.controller.last_event.metadata["lastActionSuccess"], self.controller.last_event.metadata[
                     "errorMessage"]
-            if any([goal_obj == object["objectId"] for object in state['objects']]):
-                return self.controller.last_event.metadata["lastActionSuccess"], self.controller.last_event.metadata["errorMessage"]
-        return False, self.controller.last_event.metadata["errorMessage"]
+            if any([goal_obj in object["objectId"].lower() for object in state['objects']]):
+                print(f"{goal_obj} found!")
+                return True, ""
+        return False, (f"Failed to find object {goal_obj} during scan_room, it may not be visible from my"
+                       f" current position try movement actions like <action name='moveforward'> or <action name='movebackward'>")
 
     def translate_action_for_sim(self, action, state):
         return [action]
@@ -381,33 +384,42 @@ class AI2ThorSimEnv:
     def check_cooked(self):
         pass
 
+    def check_condition(self, cond, target):
+        state = self.get_state()
+        if "inroom" in cond.lower():
+            return True, ""
+        if "visible" in cond.lower():
+            isVisible = len([object for object in state['objects'] if object["objectId"] == target]) > 0
+            msg = "" if isVisible else f"{target} is not currently visible try search actions like <action name=scanroom target={target}/>."
+            return isVisible, msg
+        for object in state['objects']:
+            if target in object['objectId'].lower():
+                return object[cond], ''
+        return False, 'object not found'
+
     def execute_actions(self, actions, state):
         event = self.controller.last_event
         for action in actions:
             state = self.get_state()
-            act, params = parse_instantiated_predicate(action)
+            act, target = parse_instantiated_predicate(action)
             objects = []
             print(f"Action: {action}")
+            print(f"target: {target}")
+            if target is None:
+                return self.action_fn_from_str[act]()
             if "find" in action:
-                event = self.cheat_and_find_object(params[0])
+                event = self.cheat_and_find_object(target[0])
                 print(event.metadata["lastActionSuccess"], event.metadata['errorMessage'])
                 continue
-            new_action = f"{action}"
-            if act == 'walk':
-                new_action = f"walk_to_object"
-                if any(param in state['room_names'] for param in params):
-                    new_action = f"walk_to_room"
-                act = new_action
-            for param in params:
-                if "character" in param:
-                    continue
-                object = [obj for obj in state["objects"] if obj["objectId"] == param]
-                object = None if len(object) == 0 else object[0]
-                if object is None and param not in state["room_names"]:
-                    return False, f"I cannot currently see a {param} to complete action {action}."
-                elif param in state["room_names"]:
-                    object = param
-                objects.append(object)
+            if "scanroom" in act:
+                return self.handle_scan_room(target)
+            matches = [obj for obj in state["objects"] if obj["objectId"] == target]
+            object =  matches[0] if len(matches) > 0 else None
+            if object is None and target not in state["room_names"]:
+                return False, f"<action name={act} target={target}/> FAILED. I do not know the location of {target} try search actions like 'scanroom <{object}>' ."
+            elif target in state["room_names"]:
+                object = target
+            objects.append(object)
             event = self.controller.last_event
             try:
                 if len(objects) == 0:
@@ -419,7 +431,7 @@ class AI2ThorSimEnv:
                 time.sleep(0.5)
                 self.move_back(0.01)
             except Exception as e:
-                print(f"Failed to edecute action {act} due to: {e}")
+                print(f"Failed to execute action {act} due to: {e}")
         return event.metadata["lastActionSuccess"], event.metadata['errorMessage']
 
     def get_world_predicate_set(self, graph, custom_preds=()):

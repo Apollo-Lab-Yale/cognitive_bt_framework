@@ -26,7 +26,6 @@ class CognitiveBehaviorTreeFramework:
         self.example = BASE_EXAMPLE
         self.conditions = conditions
 
-
     def get_embedding(self, text):
         inputs = self.tokenizer(text, return_tensors="pt", truncation=True, max_length=512, padding='max_length')
         outputs = self.model(**inputs)
@@ -48,31 +47,17 @@ class CognitiveBehaviorTreeFramework:
                         highest_similarity = similarity
                 except Exception as e:
                     pass
-            print(f'BEST MATCH: {best_match}')
             return best_match
 
     def connect_db(self):
         return sqlite3.connect(self.db_path)
-
-    def manage_task(self, task_name):
-        # Load or generate a behavior tree for the task
-        task_embedding = self.get_embedding(task_name)
-        task_id = self.find_most_similar_task(task_embedding, task_name)
-        bt_root, bt_xml = self.load_or_generate_bt(task_id, task_name)
-        # Execute the behavior tree
-        success, msg = self.execute_behavior_tree(bt_root)
-        # Get feedback based on execution, simulated here as a function
-        if not success:
-            feedback = self.simulate_feedback(msg)
-            # Refine the behavior tree based on feedback
-            self.refine_and_update_bt(task_name, bt_xml, feedback)
 
     def load_or_generate_bt(self, task_id, task_name):
         bt_xml = None
         if task_id:
             bt_xml = self.load_behavior_tree(task_id)
         else:
-            bt_xml = self.llm_interface.get_behavior_tree(task_name, self.actions, self.example)
+            bt_xml = self.llm_interface.get_behavior_tree(task_name, self.actions, self.conditions, self.example)
             self.save_behavior_tree(task_name, bt_xml, task_id)
         return parse_bt_xml(bt_xml), bt_xml
 
@@ -90,7 +75,7 @@ class CognitiveBehaviorTreeFramework:
                 embedding = self.get_embedding(task_name).tobytes()
                 cursor.execute("INSERT INTO Tasks (TaskName, TaskID) VALUES (?, ?)", (task_name, embedding))
                 task_id = embedding
-
+            self.cache[task_id] = bt_xml
             add_behavior_tree(conn, task_id, task_name, "Generated BT", bt_xml, 'system')
 
     def execute_behavior_tree(self, bt_root):
@@ -103,15 +88,31 @@ class CognitiveBehaviorTreeFramework:
         # Placeholder for feedback simulation
         return "Feedback based on monitoring"
 
-    def refine_and_update_bt(self, task_name, bt_xml, feedback):
+    def refine_and_update_bt(self, task_name, task_id, bt_xml, feedback):
         refined_bt_xml = self.llm_interface.refine_behavior_tree(task_name, self.actions, bt_xml, feedback)
         if refined_bt_xml:
-            self.save_behavior_tree(task_name, refined_bt_xml)
+            self.save_behavior_tree(task_name, task_id, refined_bt_xml)
             print("Behavior Tree refined and updated.")
         else:
             print("Unable to refine behavior tree based on feedback.")
 
+    def manage_task(self, task_name):
+        # Load or generate a behavior tree for the task
+        task_embedding = self.get_embedding(task_name)
+
+        task_incomplete = True
+        while task_incomplete:
+            task_id = self.find_most_similar_task(task_embedding, task_name)
+            bt_root, bt_xml = self.load_or_generate_bt(task_id, task_name)
+            # Execute the behavior tree
+            success, msg = self.execute_behavior_tree(bt_root)
+            # Get feedback based on execution, simulated here as a function
+            if not success:
+                print(f"Failed to execute behavior tree due to {msg}.")
+                # Refine the behavior tree based on feedback
+                self.refine_and_update_bt(task_name, task_embedding, bt_xml, msg)
+
 if __name__ == "__main__":
     sim = AI2ThorSimEnv()
     cbtf = CognitiveBehaviorTreeFramework(sim)
-    print(cbtf.manage_task("clean the kitchen"))
+    print(cbtf.manage_task("wash the mug in the sink"))

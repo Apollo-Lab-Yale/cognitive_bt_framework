@@ -20,7 +20,6 @@ AI2THOR_ACTIONS = [
     'switchon',
     'switchoff',
     'slice',
-    'find',
     'cut',
     'moveforward',
     'movebackward',
@@ -54,7 +53,9 @@ AI2THOR_PREDICATES = [
     'isOpen',
     'pickupable',
     'isPickedUp',
-    'moveable'
+    "inRoom",
+    'moveable',
+    'scanroom'
 ]
 
 AI2THOR_TO_VHOME = {
