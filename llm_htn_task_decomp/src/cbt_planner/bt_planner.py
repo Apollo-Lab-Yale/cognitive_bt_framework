@@ -1,7 +1,7 @@
 import sqlite3
 from cachetools import LRUCache
 from llm_htn_task_decomp.src.llm_interface.llm_interface_openai import LLMInterface
-from llm_htn_task_decomp.utils.bt_db_utils import setup_database, add_behavior_tree, store_feedback
+from llm_htn_task_decomp.utils.db_utils import setup_database, add_behavior_tree, store_feedback
 import os
 
 class BehaviorTreePlanner:

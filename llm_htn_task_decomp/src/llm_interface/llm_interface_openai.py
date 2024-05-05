@@ -28,44 +28,37 @@ class LLMInterface:
         message = {"role": "user", "content": f"Decompose the following task into detailed subtask steps: {task}"}
         return [instruction, message]
 
-    def generate_refined_prompt(self, task, original_decomposition, user_feedback):
-        """
-        Generate a secondary prompt that includes the task, the original decomposition,
-        and the user feedback to guide the LLM towards generating a refined task decomposition.
-        """
-        prompt = [
-            {"role": "system", "content": f"Task: {task}"},
-            {"role": "system", "content": f"Original Decomposition: {original_decomposition}"},
-            {"role": "system",
-             "content": "Based on the user feedback, refine the above task decomposition to improve clarity and completeness."},
-            {"role": "system", "content": f"User Feedback: {user_feedback}"},
-            {"role": "user", "content": "Refined Decomposition:"}
-        ]
-        print(prompt)
-        return prompt
-
     def generate_behavior_tree_prompt(self, task, conditions, actions, example):
         """
         Generate a prompt specifically for creating a behavior tree in XML format.
         """
-        instruction = {"role": 'system', 'content': 'Create a behavior tree in XML format for a robot to execute a task. '
-                                                    f'Each action should be clearly defined in XML tags, and should only come from this list: {actions}.'
-                                                    f'These are the possible predicates in the state that may apply to actions: {conditions}'
-                                                    f' this is an example of a properly formed xmlBT: {example}'}
-        message = {"role": "user", "content": f"Create a behavior tree for the task: {task}"}
+        system_message = f'''
+                    Create a behavior tree in XML format for a robot to execute a task. 
+                    Each action should be clearly defined in XML tags, and should only come from this list: {actions}.
+                    These are the possible predicates in the state that may apply to actions: {conditions}
+                    this is an example of a properly formed xmlBT: {example}
+                    Create a behavior tree for the task: {task}
+                '''
+        instruction = {"role": 'system', 'content': system_message}
+        message = {"role": "user", "content": "Behavior Tree for {task}:"}
         print([instruction, message])
 
         return [instruction, message]
 
-    def generate_behavior_tree_refinement_prompt(self, task, original_bt_xml, feedback):
+    def generate_behavior_tree_refinement_prompt(self, task, conditions, actions, original_bt_xml, feedback):
         """
         Generate a prompt to refine an existing behavior tree based on user feedback, in XML format.
         """
+        system_message = f'''
+            Task: {task}"
+            Original Behavior Tree: {original_bt_xml}.
+            The above behavior tree failed due to {feedback}. Update the behavior tree to account for this failure.
+            Each action should be clearly defined in XML tags, and should only come from this list: {actions}
+            These are the possible predicates in the state that may apply to actions: {conditions}
+            Please suggest modifications to including robust more robust object detection and handling steps before attempting to interact with them.
+        '''
         prompt = [
-            {"role": "system", "content": f"Task: {task}"},
-            {"role": "system", "content": f"Original Behavior Tree: {original_bt_xml}"},
-            {"role": "system",
-             "content": f"The above behavior tree failed due to {feedback}. Update the behavior tree to account for this failure."},
+            {"role": "system", "content": system_message},
             {"role": "user", "content": "Corrected Behavior Tree in XML:"}
         ]
         print(prompt)
@@ -134,11 +127,11 @@ class LLMInterface:
         behavior_tree_xml = behavior_tree_xml.replace('```', '')
         return behavior_tree_xml
 
-    def refine_behavior_tree(self, task, actions, original_bt_xml, user_feedback):
+    def refine_behavior_tree(self, task, actions, conditions, original_bt_xml, user_feedback):
         """
         Refine a behavior tree based on user feedback.
         """
-        prompt = self.generate_behavior_tree_refinement_prompt(task, original_bt_xml, user_feedback)
+        prompt = self.generate_behavior_tree_refinement_prompt(task, actions, conditions, original_bt_xml, user_feedback)
         refined_behavior_tree_xml = self.query_llm(prompt)
         return refined_behavior_tree_xml
 

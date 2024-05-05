@@ -54,7 +54,7 @@ class Node:
         self.name = name
         self.children = []
 
-    def execute(self, state, interface):
+    def execute(self, state, interface, memory):
         raise NotImplementedError("This method should be overridden by subclasses")
 
 class Action(Node):
@@ -62,28 +62,28 @@ class Action(Node):
         self.name = name
         self.target = target
 
-    def execute(self, state, interface):
+    def execute(self, state, interface, memory):
         # Logic to execute the action
         print(f"Executing action: {self.name}")
-        return interface.execute_actions([f"{self.name} {self.target}"], state)# Modify and return the new state
+        return interface.execute_actions([f"{self.name} {self.target}"], memory)# Modify and return the new state
 
 class Condition(Node):
     def __init__(self, name, target):
         super().__init__(name)
         self.target = target
 
-    def execute(self, state, interface):
+    def execute(self, state, interface, memory):
         # Evaluate the condition against the state
-        return interface.check_condition(self.name, self.target)
+        return interface.check_condition(self.name, self.target, memory)
 
 class Selector(Node):
     def __init__(self, name):
         super().__init__(name)
         self.failures = []
 
-    def execute(self, state, interface):
+    def execute(self, state, interface, memory):
         for child in self.children:
-            success, msg = child.execute(state, interface)
+            success, msg = child.execute(state, interface, memory)
             if success:
                 return success, msg
             self.failures.append(msg)
@@ -94,9 +94,9 @@ class Sequence(Node):
     def __init__(self, name):
         super().__init__(name)
 
-    def execute(self, state, interface):
+    def execute(self, state, interface, memory):
         for child in self.children:
-            success, msg = child.execute(state, interface)
+            success, msg = child.execute(state, interface, memory)
             if not success:
                 print(f"Sequence {self.name} failed to execute any children due to the failures: {msg}")
                 return False, f"Sequence {self.name} failed to execute {child.name}: {msg}."

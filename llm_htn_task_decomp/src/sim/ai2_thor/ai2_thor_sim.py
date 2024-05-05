@@ -223,6 +223,7 @@ class AI2ThorSimEnv:
 
     def navigate_to_object(self, object):
         positions = self.get_valid_positions()
+        print('navigate to object')
         teleport_pose = find_closest_position(object["position"], object["rotation"], positions, 1.2, facing=False)
         # teleport_pose = np.random.choice(positions)
         assert teleport_pose is not None
@@ -232,6 +233,7 @@ class AI2ThorSimEnv:
             rotation={'x': 0.0, 'y': get_yaw_angle(teleport_pose,{'y':0.0}, object['position']), 'z': 0.0},
             forceAction=True
         )
+        print("navigated to object scanning")
         self.handle_scan_room(object['objectId'], None)
         return event
 
@@ -347,7 +349,7 @@ class AI2ThorSimEnv:
         return self.controller.step(action="DropHandObject",
                              forceAction=False)
 
-    def handle_scan_room(self, goal_obj, pause_time = 0.5):
+    def handle_scan_room(self, goal_obj, memory, pause_time = 0.5):
         print(f"scanning for object {goal_obj}")
         action = random.choice([self.turn_left, self.turn_right])
         for i in range(12):
@@ -355,6 +357,11 @@ class AI2ThorSimEnv:
             time.sleep(pause_time)
             self.done()
             state = self.get_state()
+            # Bulk update all objects in the current state
+            if memory is not None:
+                episode_id = memory.current_episode
+                objects_to_update = [(obj['objectId'], obj) for obj in state['objects']]
+                memory.store_multiple_object_states(objects_to_update, episode_id)
             if not self.controller.last_event.metadata["lastActionSuccess"]:
                 return self.controller.last_event.metadata["lastActionSuccess"], self.controller.last_event.metadata[
                     "errorMessage"]
@@ -384,55 +391,65 @@ class AI2ThorSimEnv:
     def check_cooked(self):
         pass
 
-    def check_condition(self, cond, target):
-        state = self.get_state()
+    def check_condition(self, cond, target, memory):
+        current_state = self.get_state()  # Get the current sensor state
+        episode_id = memory.current_episode  # Assumes there's a method to get the current episode ID
+
+        # Bulk update all objects in the current state
+        objects_to_update = [(obj['objectId'], obj) for obj in current_state['objects']]
+        memory.store_multiple_object_states(objects_to_update, episode_id)
+
+        # Find specific target object
+        object_state = next((obj for obj in current_state['objects'] if target in obj['objectId'].lower()), None)
+
         if "inroom" in cond.lower():
             return True, ""
-        if "visible" in cond.lower():
-            isVisible = len([object for object in state['objects'] if object["objectId"] == target]) > 0
-            msg = "" if isVisible else f"{target} is not currently visible try search actions like <action name=scanroom target={target}/>."
-            return isVisible, msg
-        for object in state['objects']:
-            if target in object['objectId'].lower():
-                return object[cond], ''
-        return False, 'object not found'
 
-    def execute_actions(self, actions, state):
-        event = self.controller.last_event
+        if "visible" in cond.lower():
+            isVisible = object_state is not None
+            msg = "" if isVisible else f"{target} is not currently visible. Try search actions like <action name=scanroom target={target}/>."
+            return isVisible, msg
+
+        if object_state and cond.lower() in object_state:
+            return object_state[cond.lower()], ''
+
+        return False, f'I failed to check <condition name={cond} target={target}/> because the object state is unknown. Try search actions like <action name=scanroom target={target}/>.'
+    def execute_actions(self, actions, memory):
+        episode_id = memory.current_episode
+
         for action in actions:
-            state = self.get_state()
+            current_state = self.get_state()
             act, target = parse_instantiated_predicate(action)
-            objects = []
-            print(f"Action: {action}")
-            print(f"target: {target}")
+
+            # Bulk update all objects in the current state
+            objects_to_update = [(obj['objectId'], obj) for obj in current_state['objects']]
+            memory.store_multiple_object_states(objects_to_update, episode_id)
+
+            if target in current_state['room_names']:
+                return self.action_fn_from_str[act](target), ''
+            if 'scanroom' in act:
+                return self.handle_scan_room(target, memory)
+            # Find specific target object
+            object_state = next((obj for obj in current_state['objects'] if target in obj['objectId'].lower()), None)
+
+            print(f"Action: {act}, Target: {target}")
+
             if target is None:
-                return self.action_fn_from_str[act]()
-            if "find" in action:
-                event = self.cheat_and_find_object(target[0])
-                print(event.metadata["lastActionSuccess"], event.metadata['errorMessage'])
+                result = self.action_fn_from_str[act]()
                 continue
-            if "scanroom" in act:
-                return self.handle_scan_room(target)
-            matches = [obj for obj in state["objects"] if obj["objectId"] == target]
-            object =  matches[0] if len(matches) > 0 else None
-            if object is None and target not in state["room_names"]:
-                return False, f"<action name={act} target={target}/> FAILED. I do not know the location of {target} try search actions like 'scanroom <{object}>' ."
-            elif target in state["room_names"]:
-                object = target
-            objects.append(object)
-            event = self.controller.last_event
+
+            if object_state is None:
+                return False, f"Unable to locate {target}. Consider search actions like 'scanroom {target}'."
+
             try:
-                if len(objects) == 0:
-                    event = self.action_fn_from_str[act]()
-                else:
-                    target = objects[0] if len(objects) == 1 else objects[1]
-                    event = self.action_fn_from_str[act](target)
-                    print(event.metadata["lastActionSuccess"], event.metadata['errorMessage'])
-                time.sleep(0.5)
-                self.move_back(0.01)
+                result = self.action_fn_from_str[act](object_state)
             except Exception as e:
-                print(f"Failed to execute action {act} due to: {e}")
-        return event.metadata["lastActionSuccess"], event.metadata['errorMessage']
+                print(f"Failed to execute action {act} target={target} due to: {e}")
+                return False, f"Failed to execute action {act} due to {e}."
+
+            if not result or not result.metadata.get("lastActionSuccess", False):
+                return False, f"Action {act} failed for {target}."
+        return True, "Actions executed successfully."
 
     def get_world_predicate_set(self, graph, custom_preds=()):
         return set(get_predicates(graph['objects']))
