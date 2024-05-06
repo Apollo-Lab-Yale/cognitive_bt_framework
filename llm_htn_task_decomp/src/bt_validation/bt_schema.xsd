@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+
+  <!-- root node -->
+  <xs:element name="root">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="BehaviorTree" type="bt_type"/>
+      </xs:sequence>
+      <xs:attribute name="BTCPP_format" type="xs:string" use="required"/>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:complexType name="bt_type">
+    <xs:sequence minOccurs="0" maxOccurs="unbounded"> 
+      <xs:element name="Sequence" type="sequence_type"/>
+    </xs:sequence>
+    <xs:attribute name="ID" type="xs:string" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="sequence_type">
+    <xs:sequence>
+      <xs:element name="Action" type="xs:string"/>
+    </xs:sequence>
+  </xs:complexType>
+
+</xs:schema>
