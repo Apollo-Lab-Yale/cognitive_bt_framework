@@ -4,43 +4,69 @@ BASE_EXAMPLE = '''
 <?xml version="1.0"?>
 <root>
   <selector>
-    <sequence name="Mug Washing Task">
+    <sequence name="Tea Making Task">
       <!-- Navigate to the kitchen -->
       <action name="walk_to_room" target="kitchen"/>
-      <!-- Attempt to locate the sink -->
-      <selector name="Locate Sink">
-        <!-- Check if the sink is visible -->
-        <condition name="visible" target="sink"/>
-        <!-- If not visible, scan the room or adjust position -->
-        <sequence name="Adjust and Scan">
-          <action name="scan_room" target="sink"/>
-          <condition name="visible" target="sink"/>
+      <!-- Locate the kettle -->
+      <selector name="Locate Kettle">
+        <!-- Check if the kettle is visible -->
+        <condition name="visible" target="kettle"/>
+        <!-- If not visible, scan the room -->
+        <sequence name="Adjust and Scan Kettle">
+          <action name="scanroom" target="kettle"/>
+          <condition name="visible" target="kettle"/>
         </sequence>
       </selector>
-      <!-- Navigate to the sink -->
-      <action name="walk_to_object" target="sink"/>
-      <!-- Ensure the mug is present and interactable -->
-      <condition name="isInteractable" target="mug"/>
-      <!-- Check if the mug is dirty -->
-      <condition name="isDirty" target="mug"/>
+      <!-- Navigate to the kettle -->
+      <action name="walk_to_object" target="kettle"/>
+      <!-- Fill kettle if needed -->
+      <selector name="Check and Fill Kettle">
+        <!-- Check if kettle is filled with liquid -->
+        <condition name="isFilledWithLiquid" target="kettle"/>
+        <!-- If kettle is not filled, fill it -->
+        <sequence name="Fill Kettle">
+          <action name="open" target="kettle"/>
+          <action name="putin" target="water_source"/>  <!-- Assume there is a target 'water_source' -->
+          <action name="close" target="kettle"/>
+        </sequence>
+      </selector>
+      <!-- Turn on the kettle -->
+      <action name="switchon" target="kettle"/>
+      <!-- Wait for water to boil -->
+      <condition name="isBoiled" target="kettle"/>  <!-- Assuming 'isBoiled' is a valid condition -->
+      <!-- Locate the mug -->
+      <selector name="Locate Mug">
+        <!-- Check if the mug is visible -->
+        <condition name="visible" target="mug"/>
+        <!-- If not visible, scan the room -->
+        <sequence name="Adjust and Scan Mug">
+          <action name="scanroom" target="mug"/>
+          <condition name="visible" target="mug"/>
+        </sequence>
+      </selector>
+      <!-- Navigate to the mug -->
+      <action name="walk_to_object" target="mug"/>
       <!-- Pick up the mug -->
       <action name="grab" target="mug"/>
-      <!-- Sequence to wash the mug -->
-      <sequence name="Washing Sequence">
-        <!-- Check if the sink is a receptacle -->
-        <condition name="receptacle" target="sink"/>
-        <!-- Check if the sink is toggleable -->
-        <condition name="toggleable" target="sink"/>
-        <!-- Check if the sink is filled with liquid -->
-        <condition name="isFilledWithLiquid" target="sink"/>
-        <!-- Open the sink -->
-        <action name="open" target="sink"/>
-        <!-- Wash the mug -->
-        <action name="putin" target="sink"/>
-        <!-- Close the sink -->
-        <action name="close" target="sink"/>
-      </sequence>
-      <!-- Put the clean mug aside -->
+      <!-- Locate the tea bag -->
+      <selector name="Locate Tea Bag">
+        <!-- Check if the tea bag is visible -->
+        <condition name="visible" target="tea_bag"/>
+        <!-- If not visible, scan the room -->
+        <sequence name="Adjust and Scan Tea Bag">
+          <action name="scanroom" target="tea_bag"/>
+          <condition name="visible" target="tea_bag"/>
+        </sequence>
+      </selector>
+      <!-- Put the tea bag in the mug -->
+      <action name="putin" target="mug"/>
+      <!-- Pour hot water into the mug -->
+      <action name="putin" target="mug"/>
+      <!-- Let the tea steep -->
+      <condition name="isSteeped" target="mug"/>  <!-- Assuming 'isSteeped' is a valid condition -->
+      <!-- Remove the tea bag -->
+      <action name="put" target="trash"/>
+      <!-- Put the mug aside -->
       <action name="put" target="drying_rack"/>
     </sequence>
   </selector>
@@ -57,15 +83,22 @@ class Node:
     def execute(self, state, interface, memory):
         raise NotImplementedError("This method should be overridden by subclasses")
 
+    def to_xml(self):
+        raise NotImplementedError("This method should be overridden by subclasses")
+
 class Action(Node):
     def __init__(self, name, target):
         self.name = name
         self.target = target
 
     def execute(self, state, interface, memory):
+
         # Logic to execute the action
         print(f"Executing action: {self.name}")
-        return interface.execute_actions([f"{self.name} {self.target}"], memory)# Modify and return the new state
+        return *interface.execute_actions([f"{self.name} {self.target}"], memory), self.to_xml()# Modify and return the new state
+
+    def to_xml(self):
+        return f'<action name="{self.name}" target="{self.target}"/>'
 
 class Condition(Node):
     def __init__(self, name, target):
@@ -74,7 +107,13 @@ class Condition(Node):
 
     def execute(self, state, interface, memory):
         # Evaluate the condition against the state
-        return interface.check_condition(self.name, self.target, memory)
+        success, msg = interface.check_condition(self.name, self.target, memory)
+        if 'These objects satisfy the condition' in msg:
+            msg = f"{self.name} is FALSE for object {self.target}. " + msg
+        return success, msg, self.to_xml()
+
+    def to_xml(self):
+        return f'<condition name="{self.name}" target="{self.target}"/>'
 
 class Selector(Node):
     def __init__(self, name):
@@ -83,12 +122,17 @@ class Selector(Node):
 
     def execute(self, state, interface, memory):
         for child in self.children:
-            success, msg = child.execute(state, interface, memory)
+            success, msg, _ = child.execute(state, interface, memory)
             if success:
-                return success, msg
+                return success, msg, ""
             self.failures.append(msg)
-        print(f"Selector {self.name} has {self.failures} failures")
-        return False, f"{self.name} failed due to the failures: {self.failures}"
+        print(f"{self.failures}")
+        return False, f"{self.failures[-1]}", self.to_xml()
+
+    def to_xml(self):
+        children_xml = "\n".join(child.to_xml() for child in self.children)
+        return f'<selector name="{self.name}">{children_xml}</selector>'
+
 
 class Sequence(Node):
     def __init__(self, name):
@@ -96,11 +140,18 @@ class Sequence(Node):
 
     def execute(self, state, interface, memory):
         for child in self.children:
-            success, msg = child.execute(state, interface, memory)
+            success, msg, child_xml = child.execute(state, interface, memory)
             if not success:
-                print(f"Sequence {self.name} failed to execute any children due to the failures: {msg}")
-                return False, f"Sequence {self.name} failed to execute {child.name}: {msg}."
-        return True, ""
+                print(f"{msg}")
+                ret_xml = child_xml
+                if type(child) not in [Sequence, Condition]:
+                    ret_xml = self.to_xml()
+                return False, f"{msg}.", self.to_xml()
+        return True, "", ""
+
+    def to_xml(self):
+        children_xml = "\n".join(child.to_xml() for child in self.children)
+        return f'<sequence name="{self.name}">{children_xml}</sequence>'
 
 
 

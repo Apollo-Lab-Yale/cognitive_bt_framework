@@ -6,6 +6,22 @@ def setup_database(db_path):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
+    cursor.execute('''
+               CREATE TABLE IF NOT EXISTS Episodes (
+                   EpisodeID TEXT PRIMARY KEY,
+                   TaskName TEXT
+               );
+           ''')
+    cursor.execute('''
+               CREATE TABLE IF NOT EXISTS ObjectStates (
+                   StateID INTEGER PRIMARY KEY AUTOINCREMENT,
+                   ObjectID TEXT,
+                   State TEXT,
+                   EpisodeID TEXT,
+                   Timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                   FOREIGN KEY (EpisodeID) REFERENCES Episodes(EpisodeID)
+               );
+           ''')
     # Create Tasks table
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS Tasks (
@@ -48,22 +64,7 @@ def setup_database(db_path):
         FOREIGN KEY (BehaviorTreeID) REFERENCES BehaviorTrees (BehaviorTreeID)
     )''')
 
-    cursor.execute('''
-           CREATE TABLE IF NOT EXISTS Episodes (
-               EpisodeID TEXT PRIMARY KEY,
-               TaskName TEXT
-           );
-       ''')
-    cursor.execute('''
-           CREATE TABLE IF NOT EXISTS ObjectStates (
-               StateID INTEGER PRIMARY KEY AUTOINCREMENT,
-               ObjectID TEXT,
-               State TEXT,
-               EpisodeID TEXT,
-               Timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-               FOREIGN KEY (EpisodeID) REFERENCES Episodes(EpisodeID)
-           );
-       ''')
+
     conn.commit()
     conn.close()
 

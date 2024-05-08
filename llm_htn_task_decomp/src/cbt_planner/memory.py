@@ -7,30 +7,30 @@ class Memory:
     def __init__(self, db_path):
         self.db_path = db_path
         self.object_cache = LRUCache(maxsize=100)  # Cache for object states
-        self.setup_database()
+        # self.setup_database()
         self.current_episode = -1
 
-    def setup_database(self):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS Episodes (
-                EpisodeID TEXT PRIMARY KEY,
-                TaskName TEXT
-            );
-        ''')
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS ObjectStates (
-                StateID INTEGER PRIMARY KEY AUTOINCREMENT,
-                ObjectID TEXT,
-                State TEXT,
-                EpisodeID TEXT,
-                Timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (EpisodeID) REFERENCES Episodes(EpisodeID)
-            );
-        ''')
-        conn.commit()
-        conn.close()
+    # def setup_database(self):
+    #     conn = sqlite3.connect(self.db_path)
+    #     cursor = conn.cursor()
+    #     cursor.execute('''
+    #         CREATE TABLE IF NOT EXISTS Episodes (
+    #             EpisodeID TEXT PRIMARY KEY,
+    #             TaskName TEXT
+    #         );
+    #     ''')
+    #     cursor.execute('''
+    #         CREATE TABLE IF NOT EXISTS ObjectStates (
+    #             StateID INTEGER PRIMARY KEY AUTOINCREMENT,
+    #             ObjectID TEXT,
+    #             State TEXT,
+    #             EpisodeID TEXT,
+    #             Timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    #             FOREIGN KEY (EpisodeID) REFERENCES Episodes(EpisodeID)
+    #         );
+    #     ''')
+    #     conn.commit()
+    #     conn.close()
 
     def start_new_episode(self, task_name):
         episode_id = datetime.datetime.now().isoformat()
@@ -56,7 +56,7 @@ class Memory:
         conn.commit()
         conn.close()
 
-    def retrieve_object_state(self, object, episode_id):
+    def retrieve_object_state(self, object):
         # Check cache first
         for object_id in self.object_cache.keys():
             if object in object_id.lower():
@@ -65,17 +65,30 @@ class Memory:
         # Fall back to database if not in cache
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        cursor.execute(
-            "SELECT State, Timestamp FROM ObjectStates WHERE ObjectID = ? AND EpisodeID = ? ORDER BY Timestamp DESC LIMIT 1",
-            (object_id, episode_id)
-        )
-        result = cursor.fetchone()
-        conn.close()
-        if result:
-            # Update cache with latest state
-            self.object_cache[object_id] = result
-            return json.loads(result[0]), result[1]
-        return None, -1
+
+        object_id = object[0].upper() + object[1:]
+        try:
+            # Be explicit about the object_id by finding the closest match first
+            cursor.execute("SELECT ObjectID FROM ObjectStates WHERE ObjectID LIKE ? ORDER BY Timestamp DESC LIMIT 1",
+                           (f'%{object_id}%',))
+            result = cursor.fetchone()
+            if result:
+                object_id = result[0]
+                cursor.execute(
+                    "SELECT State, Timestamp FROM ObjectStates WHERE ObjectID = ? ORDER BY Timestamp DESC LIMIT 1",
+                    (object_id,)
+                )
+                result = cursor.fetchone()
+                if result:
+                    state, timestamp = result
+                    # Update the cache with the new data
+                    self.object_cache[object_id] = (state, timestamp)
+                    return json.loads(state), timestamp
+        except Exception as e:
+            print(e)
+            conn.close()
+
+        return None, None
 
     def store_multiple_object_states(self, object_states, episode_id):
         # Convert state dictionaries to JSON strings within the tuple list

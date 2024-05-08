@@ -13,6 +13,20 @@ class LLMInterface:
         """
         self.client = OpenAI(api_key=get_openai_key(), timeout=10)
         self.model_name = model_name
+        self.conversation_history = []
+        self.token_limit = 4000
+
+    def add_to_history(self, role, content):
+        """
+        Add a new message to the conversation history, managing token count.
+        """
+        new_message = {"role": role, "content": content}
+        self.conversation_history.append(new_message)
+        # Keep the last 4096 tokens of the conversation history to stay within token limits
+        tokens = sum(len(m['content']) for m in self.conversation_history)
+        while tokens > self.token_limit:
+            tokens -= len(self.conversation_history[0]['content'])
+            self.conversation_history.pop(0)
 
     def generate_prompt_htn(self, task):
         """
@@ -28,34 +42,49 @@ class LLMInterface:
         message = {"role": "user", "content": f"Decompose the following task into detailed subtask steps: {task}"}
         return [instruction, message]
 
-    def generate_behavior_tree_prompt(self, task, conditions, actions, example):
+    def generate_behavior_tree_prompt(self, task, actions, conditions, example, relevant_objects):
         """
         Generate a prompt specifically for creating a behavior tree in XML format.
         """
         system_message = f'''
-                    Create a behavior tree in XML format for a robot to execute a task. 
-                    Each action should be clearly defined in XML tags, and should only come from this list: {actions}.
-                    These are the possible predicates in the state that may apply to actions: {conditions}
-                    this is an example of a properly formed xmlBT: {example}
-                    Create a behavior tree for the task: {task}
+                    Create a behavior tree in XML format for a robot to execute the task "{task}". 
+                    The action tags must come from this list: {actions}.
+                    The conditions that may apply to the state must come from this list: {conditions}
+                    Here is an example of a properly formed XML behavior tree: 
+                    {example}
+                    Sequence tags execute all children until one fails then exits. 
+                    Selector tags execute each child until one succeeds then exits.
+                    Ensure each relevant object is properly located before attempting to interact with it.
+                    Relevant objects for the task: {relevant_objects}
+                    all food objects can be acted on by slice and become <item>sliced for example applesliced
+                    Create a behavior tree for this task.
                 '''
         instruction = {"role": 'system', 'content': system_message}
-        message = {"role": "user", "content": "Behavior Tree for {task}:"}
+        message = {"role": "user", "content": f"Behavior Tree for {task}:"}
         print([instruction, message])
 
         return [instruction, message]
 
-    def generate_behavior_tree_refinement_prompt(self, task, conditions, actions, original_bt_xml, feedback):
+    def generate_behavior_tree_refinement_prompt(self, task, actions, conditions, original_bt_xml, feedback,
+                                                 known_objects, example, error_category=None):
         """
         Generate a prompt to refine an existing behavior tree based on user feedback, in XML format.
         """
+        error_info = f"Error Category: {error_category}" if error_category else ""
         system_message = f'''
-            Task: {task}"
-            Original Behavior Tree: {original_bt_xml}.
-            The above behavior tree failed due to {feedback}. Update the behavior tree to account for this failure.
-            Each action should be clearly defined in XML tags, and should only come from this list: {actions}
-            These are the possible predicates in the state that may apply to actions: {conditions}
-            Please suggest modifications to including robust more robust object detection and handling steps before attempting to interact with them.
+            Task: "{task}"
+            Sub-Tree containing ERROR: {original_bt_xml}.
+            Here is an example of a properly formed XML behavior tree:
+            {example}
+            Sequence tags execute all children until one fails then exits. 
+            Selector tags execute each child until one succeeds then exits.
+            The behavior tree failed to complete task {task} due to blocking condition: {feedback}. {error_info}
+            Update the behavior tree to account for this failure, considering the following:
+            - The action tags must come from this list: {actions}.
+            - The conditions that may apply to the state must come from this list: {conditions}
+            - Relevant objects for the task:  {known_objects}
+            - all food objects can be acted on by slice and become <item>sliced for example applesliced
+            Modify the Behavior tree to address: {feedback}.
         '''
         prompt = [
             {"role": "system", "content": system_message},
@@ -113,11 +142,11 @@ class LLMInterface:
         return decomposition
 
 
-    def get_behavior_tree(self, task, actions, conditions, example):
+    def get_behavior_tree(self, task, actions, conditions, example, known_objects):
         """
         Get the behavior tree from the GPT model for a given task.
         """
-        prompt = self.generate_behavior_tree_prompt(task, actions, conditions, example)
+        prompt = self.generate_behavior_tree_prompt(task, actions, conditions, example, known_objects)
 
         behavior_tree_xml = self.query_llm(prompt)
         for i in range(len(behavior_tree_xml)):
@@ -127,12 +156,18 @@ class LLMInterface:
         behavior_tree_xml = behavior_tree_xml.replace('```', '')
         return behavior_tree_xml
 
-    def refine_behavior_tree(self, task, actions, conditions, original_bt_xml, user_feedback):
+    def refine_behavior_tree(self, task, actions, conditions, original_bt_xml, user_feedback, known_objects, example):
         """
         Refine a behavior tree based on user feedback.
         """
-        prompt = self.generate_behavior_tree_refinement_prompt(task, actions, conditions, original_bt_xml, user_feedback)
+        prompt = self.generate_behavior_tree_refinement_prompt(task, actions, conditions, original_bt_xml, user_feedback, known_objects, example)
         refined_behavior_tree_xml = self.query_llm(prompt)
+        print(f"Refined Behavior Tree: {refined_behavior_tree_xml}")
+        for i in range(len(refined_behavior_tree_xml)):
+            if refined_behavior_tree_xml[i] == '<':
+                refined_behavior_tree_xml = refined_behavior_tree_xml[i:]
+                break
+        refined_behavior_tree_xml = refined_behavior_tree_xml.replace('```', '')
         return refined_behavior_tree_xml
 
 if __name__ == "__main__":

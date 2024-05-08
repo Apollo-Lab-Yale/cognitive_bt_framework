@@ -12,13 +12,15 @@ def get_ithor_scene_single_room(room, index = -1):
     broken_rooms = [2, 5, 17, 22]
     if index > 0:
         return f"FloorPlan{index}"
-    kitchens = [f"FloorPlan{i}" for i in range(1, 31) if i not in broken_rooms]
+    # kitchens = [f"FloorPlan{i}" for i in range(1, 31) if i not in broken_rooms]
+    kitchens = [f"FloorPlan{i}" for i in [4, 6] if i not in broken_rooms]
     living_rooms = [f"FloorPlan{200 + i}" for i in range(1, 31)]
     bedrooms = [f"FloorPlan{300 + i}" for i in range(1, 31)]
     bathrooms = [f"FloorPlan{400 + i}" for i in range(1, 31)]
     rooms = []
     if "kitchen" in room.lower():
         rooms = kitchens
+        # rooms = [4, 6]
     if "livingroom" in room.lower().replace("_", ""):
         rooms = living_rooms
     if "bedroom" in room.lower():
@@ -191,21 +193,29 @@ class AI2ThorSimEnv:
 
     def grab_object(self, object):
         assert object["distance"] <= CLOSE_DISTANCE
+        if object['isPickedUp']:
+            ret = Event()
+            ret.metadata['lastActionSuccess'] = True
+            ret.metadata['errorMessage'] = ""
+            return ret
+
         ret =  self.controller.step("PickupObject",
                              objectId=object["objectId"],
                              forceAction=False,
                              manualInteract=True)
-        self.controller.step("MoveHeldObjectUp", moveMagnitude=0.1, forceVisible=True)
-        for i in range(20):
-            self.controller.step("MoveHeldObjectUp", moveMagnitude=0.01, forceVisible=True)
-            ret = self.controller.step("MoveHeldObjectBack", moveMagnitude=0.01, forceVisible=True)
+        success = object['isPickedUp']
+        # self.controller.step("MoveHeldObjectUp", moveMagnitude=0.1, forceVisible=True)
+        # for i in range(20):
+        #     self.controller.step("MoveHeldObjectUp", moveMagnitude=0.01, forceVisible=True)
+        #     ret = self.controller.step("MoveHeldObjectBack", moveMagnitude=0.01, forceVisible=True)
         return ret
 
     def place_object(self, target):
         if target['distance'] > CLOSE_DISTANCE:
             fail_event = Event()
             fail_event.metadata['lastActionSuccess'] = False
-            fail_event.metadata['errorMessage'] = f"Not close enough to {target['objectId']} to place object."
+            fail_event.metadata['errorMessage'] = (f"Not close enough to {target['objectId'].split('|')[0].lower()} to put the heald object. "
+                                                   f"NAVIGATE CLOSER to {target['objectId'].split('|')[0].lower()} to interact.")
             return fail_event
         return self.controller.step(
             action="PutObject",
@@ -224,7 +234,8 @@ class AI2ThorSimEnv:
     def navigate_to_object(self, object):
         positions = self.get_valid_positions()
         print('navigate to object')
-        teleport_pose = find_closest_position(object["position"], object["rotation"], positions, 1.2, facing=False)
+        print(type(object))
+        teleport_pose = find_closest_position(object["position"], object["rotation"], positions, 0.8, facing=False)
         # teleport_pose = np.random.choice(positions)
         assert teleport_pose is not None
         event = self.controller.step(
@@ -288,7 +299,7 @@ class AI2ThorSimEnv:
         if object['distance'] > CLOSE_DISTANCE:
             fail_event = Event()
             fail_event.metadata['lastActionSuccess'] = False
-            fail_event.metadata['errorMessage'] = f"Not close enough to {object['objectId']} to place object."
+            fail_event.metadata['errorMessage'] = f"Not close enough to {object['objectId']} to switch object on."
             return fail_event
         return self.controller.step(
             action="ToggleObjectOn",
@@ -300,7 +311,7 @@ class AI2ThorSimEnv:
         if object['distance'] > CLOSE_DISTANCE:
             fail_event = Event()
             fail_event.metadata['lastActionSuccess'] = False
-            fail_event.metadata['errorMessage'] = f"Not close enough to {object['objectId']} to place object."
+            fail_event.metadata['errorMessage'] = f"Not close enough to {object['objectId']} switch it off."
             return fail_event
         return self.controller.step(
             action="ToggleObjectOff",
@@ -401,7 +412,9 @@ class AI2ThorSimEnv:
 
         # Find specific target object
         object_state = next((obj for obj in current_state['objects'] if target in obj['objectId'].lower()), None)
-
+        if object_state is None:
+            # Fallback to memory
+            object_state, _ = memory.retrieve_object_state(target)
         if "inroom" in cond.lower():
             return True, ""
 
@@ -410,23 +423,33 @@ class AI2ThorSimEnv:
             msg = "" if isVisible else f"{target} is not currently visible. Try search actions like <action name=scanroom target={target}/>."
             return isVisible, msg
 
-        if object_state and cond.lower() in object_state:
-            return object_state[cond.lower()], ''
+        if object_state and cond in object_state:
+            cond_objs = []
+            msg = ''
+            if not object_state[cond]:
+                cond_objs=  [obj['objectId'].split('|')[0] for obj in current_state['objects'] if obj[cond]]
+                msg = f"These objects satisfy the condition {cond}: f{cond_objs}"
+            return object_state[cond], msg
 
         return False, f'I failed to check <condition name={cond} target={target}/> because the object state is unknown. Try search actions like <action name=scanroom target={target}/>.'
+
     def execute_actions(self, actions, memory):
         episode_id = memory.current_episode
 
         for action in actions:
             current_state = self.get_state()
             act, target = parse_instantiated_predicate(action)
-
+            print(f"^^^^^^^^^^^^^^^ {target}")
+            if target is None or target =='None':
+                result = self.action_fn_from_str[act]()
+                continue
             # Bulk update all objects in the current state
             objects_to_update = [(obj['objectId'], obj) for obj in current_state['objects']]
             memory.store_multiple_object_states(objects_to_update, episode_id)
 
             if target in current_state['room_names']:
-                return self.action_fn_from_str[act](target), ''
+                ret = self.action_fn_from_str[act](target)
+                return True, ''
             if 'scanroom' in act:
                 return self.handle_scan_room(target, memory)
             # Find specific target object
@@ -439,16 +462,25 @@ class AI2ThorSimEnv:
                 continue
 
             if object_state is None:
-                return False, f"Unable to locate {target}. Consider search actions like 'scanroom {target}'."
+                # Fallback to memory
+                object_state, _ = memory.retrieve_object_state(target)
+
+            if object_state is None:
+                return False, (f"Unable to locate {target}. Consider search actions like 'scanroom {target}'. "
+                               f"There also may not be a {target} in my environment, consider also changing the sub goal.")
 
             try:
                 result = self.action_fn_from_str[act](object_state)
             except Exception as e:
-                print(f"Failed to execute action {act} target={target} due to: {e}")
-                return False, f"Failed to execute action {act} due to {e}."
+                print(object_state)
+                print(f"Action <action name={act} target={target}> failed due to: {e}")
+                return False, f"Failed to execute action {act}: {e}."
 
             if not result or not result.metadata.get("lastActionSuccess", False):
-                return False, f"Action {act} failed for {target}."
+                error_message = result.metadata["errorMessage"]
+                if len(error_message) > 50:
+                    error_message = error_message[:error_message.find('trace:')]
+                return False, f"Action <action name={act} target={target}> failed due to: {error_message}"
         return True, "Actions executed successfully."
 
     def get_world_predicate_set(self, graph, custom_preds=()):

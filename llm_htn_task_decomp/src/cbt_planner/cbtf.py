@@ -12,35 +12,39 @@ from llm_htn_task_decomp.src.llm_interface.llm_interface_openai import LLMInterf
 from llm_htn_task_decomp.utils.db_utils import setup_database, add_behavior_tree, store_feedback,\
     start_new_episode, store_object_state, retrieve_object_states_by_object_id, retrieve_object_states_by_episode
 from llm_htn_task_decomp.utils.bt_utils import parse_node, parse_bt_xml, BASE_EXAMPLE
+from llm_htn_task_decomp.utils.goal_gen_aithor import get_wash_mug_in_sink_goal
 from llm_htn_task_decomp.src.sim.ai2_thor.utils import AI2THOR_ACTIONS, AI2THOR_PREDICATES
 from llm_htn_task_decomp.src.sim.ai2_thor.ai2_thor_sim import AI2ThorSimEnv
 from llm_htn_task_decomp.src.cbt_planner.memory import Memory
+DEFAULT_DB_PATH = '/home/liam/dev/llm_htn_task_decomp/llm_htn_task_decomp/src/cbt_planner/'
 
 class CognitiveBehaviorTreeFramework:
-    def __init__(self, robot_interface, actions=AI2THOR_ACTIONS, conditions=AI2THOR_PREDICATES, db_path='./behavior_tree.db', model_name="gpt-3.5-turbo", sim=True):
+    def __init__(self, robot_interface, actions=AI2THOR_ACTIONS, conditions=AI2THOR_PREDICATES, db_path=DEFAULT_DB_PATH, model_name="gpt-3.5-turbo", sim=True):
         self.robot_interface = robot_interface
         self.db_path = db_path
         self.llm_interface = LLMInterface(model_name)
         self.bt_cache = LRUCache(maxsize=100)
-        self.memory = Memory(db_path)
+        self.memory = Memory(db_path + f'behavior_tree_{robot_interface.scene["rooms"][0]["name"]}.db')
+        self.db_path +=  f'behavior_tree_{robot_interface.scene["rooms"][0]["name"]}.db'
         self.actions = actions
         setup_database(self.db_path)
         self.tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
         self.model = AutoModel.from_pretrained("bert-base-uncased")
-        self.cosine_similarity_threshold = 0.85  # Cosine similarity threshold
+        self.cosine_similarity_threshold = 0.90  # Cosine similarity threshold
         self.example = BASE_EXAMPLE
         self.conditions = conditions
+        self.known_objects = []
 
     def get_embedding(self, text):
         inputs = self.tokenizer(text, return_tensors="pt", truncation=True, max_length=512, padding='max_length')
         outputs = self.model(**inputs)
-        return outputs.last_hidden_state.mean(dim=1).detach().numpy()
+        return outputs.last_hidden_state.mean(dim=1).detach().numpy().tobytes()
 
     def find_most_similar_task(self, embedding, task_name):
         with self.connect_db() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT TaskID, TaskName FROM Tasks")
-            best_match = None
+            best_match = embedding
             highest_similarity = 0
             for row in cursor.fetchall():
                 try:
@@ -59,14 +63,15 @@ class CognitiveBehaviorTreeFramework:
 
     def load_or_generate_bt(self, task_id, task_name):
         bt_xml = None
-        if task_id:
-            bt_xml = self.load_behavior_tree(task_id)
-        else:
-            bt_xml = self.llm_interface.get_behavior_tree(task_name, self.actions, self.conditions, self.example)
+        bt_xml = self.load_behavior_tree(task_id)
+        if bt_xml is None:
+            bt_xml = self.llm_interface.get_behavior_tree(task_name, self.actions, self.conditions, self.example, self.known_objects)
             self.save_behavior_tree(task_name, bt_xml, task_id)
         return parse_bt_xml(bt_xml), bt_xml
 
     def load_behavior_tree(self, task_id):
+        if task_id in self.bt_cache:
+            return self.bt_cache[task_id]
         with self.connect_db() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT BehaviorTreeXML FROM BehaviorTrees WHERE TaskID = ?", (task_id,))
@@ -77,10 +82,11 @@ class CognitiveBehaviorTreeFramework:
         with self.connect_db() as conn:
             if not task_id:
                 cursor = conn.cursor()
-                embedding = self.get_embedding(task_name).tobytes()
+                embedding = self.get_embedding(task_name)
                 cursor.execute("INSERT INTO Tasks (TaskName, TaskID) VALUES (?, ?)", (task_name, embedding))
                 task_id = embedding
             self.bt_cache[task_id] = bt_xml
+
             add_behavior_tree(conn, task_id, task_name, "Generated BT", bt_xml, 'system')
 
     def execute_behavior_tree(self, bt_root):
@@ -93,10 +99,38 @@ class CognitiveBehaviorTreeFramework:
         # Placeholder for feedback simulation
         return "Feedback based on monitoring"
 
+    def update_known_objects(self):
+        with self.connect_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT DISTINCT ObjectId from ObjectStates")
+
+            rows = cursor.fetchall()
+            if rows is not None:
+                obs = []
+                for row in rows:
+                    obs.append(row[0].split('|')[0])
+                self.known_objects = set(obs)
+            else:
+                self.known_objects = set([obj.split('|')[0] for obj in self.memory.object_cache])
+
+    def update_bt(self, task_name, task_id, bt_xml):
+        with self.connect_db() as conn:
+            cursor = conn.cursor()
+
+            if task_id is None:
+                embedding = self.get_embedding(task_name)
+                task_id = embedding
+            sql = "INSERT OR REPLACE INTO BehaviorTrees ( TaskID, BehaviorTreeXML) VALUES ( ?, ?)"
+            # Execute the SQL command
+            cursor.execute(sql, (task_id, bt_xml))
+            conn.commit()
+            self.bt_cache[task_id] = bt_xml
+
     def refine_and_update_bt(self, task_name, task_id, bt_xml, feedback):
-        refined_bt_xml = self.llm_interface.refine_behavior_tree(task_name, self.actions, self.conditions, bt_xml, feedback)
+        refined_bt_xml = self.llm_interface.refine_behavior_tree(task_name, self.actions, self.conditions, bt_xml, feedback, self.known_objects, self.example)
         if refined_bt_xml:
-            self.save_behavior_tree(task_name, task_id, refined_bt_xml)
+            self.update_bt(task_name, task_id, refined_bt_xml)
+            return parse_bt_xml(refined_bt_xml)
             print("Behavior Tree refined and updated.")
         else:
             print("Unable to refine behavior tree based on feedback.")
@@ -106,54 +140,29 @@ class CognitiveBehaviorTreeFramework:
 
         # Load or generate a behavior tree for the task
         task_embedding = self.get_embedding(task_name)
-
+        known_objects = []
         task_incomplete = True
+        task_id = self.find_most_similar_task(task_embedding, task_name)
+        self.update_known_objects()
+        bt_root, bt_xml = self.load_or_generate_bt(task_id, task_name)
+        success, msg, subtree_xml = self.execute_behavior_tree(bt_root)
         while task_incomplete:
-            task_id = self.find_most_similar_task(task_embedding, task_name)
-            bt_root, bt_xml = self.load_or_generate_bt(task_id, task_name)
-            # Execute the behavior tree
-            success, msg = self.execute_behavior_tree(bt_root)
+            self.update_known_objects()
             # Get feedback based on execution, simulated here as a function
-            if not success:
-                print(f"Failed to execute behavior tree due to {msg}.")
-                # Refine the behavior tree based on feedback
-                self.refine_and_update_bt(task_name, task_embedding, bt_xml, msg)
-
-    def retrieve_object_state(self, object_id, episode_id):
-        # Check cache first
-        if (object_id, episode_id) in self.obj_cache:
-            state, timestamp = self.obj_cache[(object_id, episode_id)]
-            return json.loads(state), timestamp
-        # Fall back to database if not in cache
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT State, Timestamp FROM ObjectStates WHERE ObjectID = ? AND EpisodeID = ? ORDER BY Timestamp DESC LIMIT 1",
-            (object_id, episode_id)
-        )
-        result = cursor.fetchone()
-        conn.close()
-        if result:
-            # Update cache with latest state
-            self.obj_cache[(object_id, episode_id)] = result
-            return json.loads(result[0]), result[1]
-        return None
-
-    def store_object_state(self, object_id, state, episode_id):
-        timestamp = datetime.datetime.now().isoformat()
-        # Store in cache
-        self.obj_cache[(object_id, episode_id)] = (json.dumps(state), timestamp)
-        # Store in database
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO ObjectStates (ObjectID, State, EpisodeID, Timestamp) VALUES (?, ?, ?, ?)",
-            (object_id, json.dumps(state), episode_id, timestamp)
-        )
-        conn.commit()
-        conn.close()
+            if success and task_incomplete:
+                msg = f"Execution of behavior tree ended in success but task {task_name} is NOT COMPLETED."
+            print(f"Failed to execute behavior tree due to {msg}.")
+            # Refine the behavior tree based on feedback
+            try:
+                new_root = self.refine_and_update_bt(task_name, task_id, subtree_xml, msg)
+                success, msg, subtree_xml = self.execute_behavior_tree(new_root)
+            except Exception as e:
+                print(f"Failed to execute behavior tree due to {e}.")
+                success = False
+                msg = str(e)
 
 if __name__ == "__main__":
     sim = AI2ThorSimEnv()
+    get_wash_mug_in_sink_goal(sim)
     cbtf = CognitiveBehaviorTreeFramework(sim)
-    print(cbtf.manage_task("wash the mug"))
+    print(cbtf.manage_task("toast a slice of bread"))
