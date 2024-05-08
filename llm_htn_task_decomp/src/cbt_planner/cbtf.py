@@ -12,10 +12,11 @@ from llm_htn_task_decomp.src.llm_interface.llm_interface_openai import LLMInterf
 from llm_htn_task_decomp.utils.db_utils import setup_database, add_behavior_tree, store_feedback,\
     start_new_episode, store_object_state, retrieve_object_states_by_object_id, retrieve_object_states_by_episode
 from llm_htn_task_decomp.utils.bt_utils import parse_node, parse_bt_xml, BASE_EXAMPLE, FORMAT_EXAMPLE
-from llm_htn_task_decomp.utils.goal_gen_aithor import get_wash_mug_in_sink_goal
+from llm_htn_task_decomp.utils.goal_gen_aithor import get_wash_mug_in_sink_goal, get_make_coffee, get_put_apple_in_fridge_goal
 from llm_htn_task_decomp.src.sim.ai2_thor.utils import AI2THOR_ACTIONS, AI2THOR_PREDICATES
 from llm_htn_task_decomp.src.sim.ai2_thor.ai2_thor_sim import AI2ThorSimEnv
 from llm_htn_task_decomp.src.cbt_planner.memory import Memory
+from llm_htn_task_decomp.src.bt_validation.validate import validate_bt
 DEFAULT_DB_PATH = '/home/liam/dev/llm_htn_task_decomp/llm_htn_task_decomp/src/cbt_planner/'
 
 class CognitiveBehaviorTreeFramework:
@@ -34,12 +35,14 @@ class CognitiveBehaviorTreeFramework:
         self.example = BASE_EXAMPLE
         self.conditions = conditions
         self.known_objects = []
+        self.goal = None
 
     def get_embedding(self, text):
         inputs = self.tokenizer(text, return_tensors="pt", truncation=True, max_length=512, padding='max_length')
         outputs = self.model(**inputs)
         return outputs.last_hidden_state.mean(dim=1).detach().numpy().tobytes()
-
+    def set_goal(self, goal):
+        self.goal = goal
     def find_most_similar_task(self, embedding, task_name):
         with self.connect_db() as conn:
             cursor = conn.cursor()
@@ -66,6 +69,10 @@ class CognitiveBehaviorTreeFramework:
         bt_xml = self.load_behavior_tree(task_id)
         if bt_xml is None:
             bt_xml = self.llm_interface.get_behavior_tree(task_name, self.actions, self.conditions, self.example, self.known_objects)
+            isValid = validate_bt(bt_xml)
+            return any([obj['fillLiquid'] == 'coffee' for obj in state["objects"] if 'mug' in obj['objectId'].lower()])
+            if isValid != 'Valid':
+                raise isValid
             self.save_behavior_tree(task_name, bt_xml, task_id)
         return parse_bt_xml(bt_xml , self.actions, self.conditions), bt_xml
 
@@ -133,6 +140,9 @@ class CognitiveBehaviorTreeFramework:
     def refine_and_update_bt(self, task_name, task_id, bt_xml, feedback):
         refined_bt_xml = self.llm_interface.refine_behavior_tree(task_name, self.actions, self.conditions, bt_xml, feedback, self.known_objects, self.example)
         if refined_bt_xml:
+            isValid = validate_bt(refined_bt_xml)
+            if isValid != 'Valid':
+                raise Exception(f"Behavior tree is not valid: {isValid}")
             self.update_bt(task_name, task_id, refined_bt_xml)
             return parse_bt_xml(refined_bt_xml, self.actions, self.conditions)
             print("Behavior Tree refined and updated.")
@@ -157,7 +167,7 @@ class CognitiveBehaviorTreeFramework:
             subtree_xml = "NO SUBTREE DUE TO FAILURE"
             success = False
             msg = str(e)
-        while task_incomplete:
+        while not self.robot_interface.check_goal(self.goal):
             self.update_known_objects()
             # Get feedback based on execution, simulated here as a function
             if success and task_incomplete:
@@ -171,9 +181,11 @@ class CognitiveBehaviorTreeFramework:
                 print(f"Failed to execute behavior tree due to {e}.")
                 success = False
                 msg = str(e)
+        print('Success!')
 
 if __name__ == "__main__":
     sim = AI2ThorSimEnv()
-    get_wash_mug_in_sink_goal(sim)
+    # goal, _ = get_make_coffee(sim)
     cbtf = CognitiveBehaviorTreeFramework(sim)
-    print(cbtf.manage_task("toast a slice of bread"))
+    cbtf.set_goal('apple')
+    print(cbtf.manage_task("put the apple in the fridge"))

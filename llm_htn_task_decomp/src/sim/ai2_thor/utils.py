@@ -13,7 +13,6 @@ AI2THOR_ACTIONS = [
     'turnleft',
     'turnright',
     'put',
-    'putin',
     'open',
     'close',
     'cook',
@@ -26,7 +25,8 @@ AI2THOR_ACTIONS = [
     'turnaround',
     'lookup',
     'lookdown',
-    'scanroom'
+    'scanroom',
+    'wash'
 ]
 
 AI2THOR_NO_TARGET = [

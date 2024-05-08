@@ -1,7 +1,7 @@
 import xmlschema
 
 def validate_bt(xml) :
-  schema = xmlschema.XMLSchema('llm_htn_task_decomp/src/bt_validation/bt_schema.xsd')
+  schema = xmlschema.XMLSchema('./bt_schema.xsd')
   try:
       schema.validate(xml)
       #print("Valid")

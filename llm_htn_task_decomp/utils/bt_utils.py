@@ -4,75 +4,60 @@ from llm_htn_task_decomp.src.sim.ai2_thor.utils import AI2THOR_NO_TARGET
 BASE_EXAMPLE = '''
 <?xml version="1.0"?>
 <root>
-  <selector>
-    <sequence name="Tea Making Task">
-      <!-- Navigate to the kitchen -->
-      <action name="walk_to_room" target="kitchen"/>
-      <!-- Locate the kettle -->
-      <selector name="Locate Kettle">
-        <!-- Check if the kettle is visible -->
-        <condition name="visible" target="kettle"/>
-        <!-- If not visible, scan the room -->
-        <sequence name="Adjust and Scan Kettle">
-          <action name="scanroom" target="kettle"/>
-          <condition name="visible" target="kettle"/>
+    <selector>
+        <sequence name="Water Filling Task">
+            <!-- Navigate to the room with the glass -->
+            <action name="walk_to_room" target="kitchen"/>
+            <!-- Locate the glass -->
+            <selector name="Locate Glass">
+                <!-- Check if the glass is visible -->
+                <condition name="visible" target="glass"/>
+                <!-- If not visible, scan the room -->
+                <sequence name="Adjust and Scan Glass">
+                    <action name="scanroom" target="glass"/>
+                    <condition name="visible" target="glass"/>
+                </sequence>
+            </selector>
+            <!-- Navigate to the glass -->
+            <action name="walk_to_object" target="glass"/>
+            <!-- Pick up the glass -->
+            <action name="grab" target="glass"/>
+            <!-- Locate the faucet -->
+            <selector name="Locate Faucet After Grabbing Glass">
+                <!-- Check if the faucet is visible -->
+                <condition name="visible" target="faucet"/>
+                <!-- If not visible, scan the room -->
+                <sequence name="Adjust and Scan Faucet">
+                    <action name="scanroom" target="faucet"/>
+                    <condition name="visible" target="faucet"/>
+                </sequence>
+            </selector>
+            <!-- Navigate to the faucet -->
+            <action name="walk_to_object" target="faucet"/>
+            <!-- Place the glass in the sink basin -->
+            <action name="put" target="sinkBasin"/>
+            <!-- Check if faucet is off before turning it on -->
+            <selector name="Ensure Faucet Off">
+                <condition name="isToggled" target="faucet"/>
+                <!-- Turn on the faucet if it is not toggled-->
+                <action name="switchon" target="faucet"/>
+            </selector>
+            <!-- Fill the glass with water -->
+            <sequence name="Fill Glass">
+                <!-- Check if the glass can be filled -->
+                <condition name="canFillWithLiquid" target="glass"/>
+                <!-- Check if the glass is filled with liquid -->
+                <condition name="isFilledWithLiquid" target="glass"/>
+            </sequence>
+            <!-- Turn off the faucet -->
+            <action name="switchoff" target="faucet"/>
+            <!-- Pick up the filled glass from the sink basin -->
+            <action name="grab" target="glass"/>
+            <!-- Place the filled glass on the countertop -->
+            <action name="put" target="CounterTop"/>
         </sequence>
-      </selector>
-      <!-- Navigate to the kettle -->
-      <action name="walk_to_object" target="kettle"/>
-      <!-- Fill kettle if needed -->
-      <selector name="Check and Fill Kettle">
-        <!-- Check if kettle is filled with liquid -->
-        <condition name="isFilledWithLiquid" target="kettle"/>
-        <!-- If kettle is not filled, fill it -->
-        <sequence name="Fill Kettle">
-          <action name="open" target="kettle"/>
-          <action name="putin" target="water_source"/>  <!-- Assume there is a target 'water_source' -->
-          <action name="close" target="kettle"/>
-        </sequence>
-      </selector>
-      <!-- Turn on the kettle -->
-      <action name="switchon" target="kettle"/>
-      <!-- Wait for water to boil -->
-      <condition name="isBoiled" target="kettle"/>  <!-- Assuming 'isBoiled' is a valid condition -->
-      <!-- Locate the mug -->
-      <selector name="Locate Mug">
-        <!-- Check if the mug is visible -->
-        <condition name="visible" target="mug"/>
-        <!-- If not visible, scan the room -->
-        <sequence name="Adjust and Scan Mug">
-          <action name="scanroom" target="mug"/>
-          <condition name="visible" target="mug"/>
-        </sequence>
-      </selector>
-      <!-- Navigate to the mug -->
-      <action name="walk_to_object" target="mug"/>
-      <!-- Pick up the mug -->
-      <action name="grab" target="mug"/>
-      <!-- Locate the tea bag -->
-      <selector name="Locate Tea Bag">
-        <!-- Check if the tea bag is visible -->
-        <condition name="visible" target="tea_bag"/>
-        <!-- If not visible, scan the room -->
-        <sequence name="Adjust and Scan Tea Bag">
-          <action name="scanroom" target="tea_bag"/>
-          <condition name="visible" target="tea_bag"/>
-        </sequence>
-      </selector>
-      <!-- Put the tea bag in the mug -->
-      <action name="putin" target="mug"/>
-      <!-- Pour hot water into the mug -->
-      <action name="putin" target="mug"/>
-      <!-- Let the tea steep -->
-      <condition name="isSteeped" target="mug"/>  <!-- Assuming 'isSteeped' is a valid condition -->
-      <!-- Remove the tea bag -->
-      <action name="put" target="trash"/>
-      <!-- Put the mug aside -->
-      <action name="put" target="drying_rack"/>
-    </sequence>
-  </selector>
+    </selector>
 </root>
-
 '''
 
 FORMAT_EXAMPLE = '''

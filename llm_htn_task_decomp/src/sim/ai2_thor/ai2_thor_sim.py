@@ -176,6 +176,11 @@ class AI2ThorSimEnv:
         print("womp womp")
         return self.navigate_to_room(target_room_str=self.single_room)
 
+    def wash(self, object):
+        return not object['isDirty'], '' if not object['isDirty'] else (f'Failed to wash '
+                                                                        f'{object["objectId"].split("|")[0]}, '
+                                                                        f'the object must be rinsed under water to wash.')
+
     def navigate_to_room(self, target_room_str="bedroom"):
         target_room = None
         for room in self.scene["rooms"]:
@@ -403,6 +408,7 @@ class AI2ThorSimEnv:
         pass
 
     def check_condition(self, cond, target, memory):
+        target = target.lower()
         current_state = self.get_state()  # Get the current sensor state
         episode_id = memory.current_episode  # Assumes there's a method to get the current episode ID
 
@@ -467,7 +473,7 @@ class AI2ThorSimEnv:
 
             if object_state is None:
                 return False, (f"Unable to locate {target}. Consider search actions like 'scanroom {target}'. "
-                               f"There also may not be a {target} in my environment, consider also changing the sub goal.")
+                               f"There also may not be a {target} in my environment, consider also replacing {target} with a similar known object.")
 
             try:
                 result = self.action_fn_from_str[act](object_state)
@@ -501,10 +507,13 @@ class AI2ThorSimEnv:
         return None
 
 
-    def check_satisfied(self, predicates, sub_goal):
+    def check_satisfied(self, sub_goal):
         state = self.get_graph()
         to_remove = []
         success = False
+        if sub_goal is None:
+            raise Exception('No goal set.')
+            return True
         pred, params = parse_instantiated_predicate(sub_goal)
         if "WASHED" in pred:
             if "SINK" in pred:
@@ -550,6 +559,20 @@ class AI2ThorSimEnv:
             to_remove.append(sub_goal)
         return success, to_remove
 
+
+    def check_goal(self, goal):
+        state = self.get_graph()
+        if goal == 'coffee':
+            return any([obj['fillLiquid'] == 'coffee' for obj in state["objects"] if 'mug' in obj['objectId'].lower()])
+        if goal == 'water_cup':
+            return any([obj['fillLiquid'] == 'water' for obj in state["objects"] if 'cup' in obj['objectId'].lower()])
+        if goal == 'apple':
+            fridge = [obj['objectId'] for obj in state['objects'] if 'fridge' in obj['objectId'].lower()][0]
+            return any(fridge in obj['parentReceptacles'] for obj in state["objects"] if 'apple' in obj['objectId'].lower() and obj['parentReceptacles'] is not None)
+        return False
+
+
 if __name__ == '__main__':
     sim = AI2ThorSimEnv()
+    print(sim.get_state())
     print(sim.action_fn_from_str.keys())

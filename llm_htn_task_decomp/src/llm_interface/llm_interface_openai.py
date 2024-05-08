@@ -5,7 +5,7 @@ from ratelimit import limits, sleep_and_retry
 
 
 class LLMInterface:
-    def __init__(self, model_name="gpt-3.5-turbo"):
+    def __init__(self, model_name="gpt-4-turbo"):
         """
         Initialize the interface with your OpenAI API key and model choice.
         :param api_key: Your OpenAI API key.
@@ -47,18 +47,22 @@ class LLMInterface:
         Generate a prompt specifically for creating a behavior tree in XML format.
         """
         system_message = f'''
-                    Create a behavior tree in XML format for a robot to execute the task "{task}". 
-                    The action tags must come from this list: {actions}.
+                    You are going to be tasked with creating a behavior tree in XML format for a robot to execute a specific task.
+                    The <Action> tags must come from this list: {actions}.
                     The conditions that may apply to the state must come from this list: {conditions}
-                    Here is an example of a properly formed XML behavior tree: 
-                    {example}
-                    Sequence tags execute all children until a child action fails or a condition check returns False then exits.
-                    Selector tags execute each child until an action child succeeds or a condition check returns True then exits.
-                    Both Selector and Sequence may exit before all children are executed.
+                    Here is a description of tags you are allowed to use:
+                    <Sequence> tags execute all children until a child action fails or a <condition> check returns False then exits.
+                    <Selector> tags execute each child until an action child succeeds or a <condition> check returns True then exits.
+                    Both <Selector> and <Sequence> may exit before all children are executed.
+                    <Action> describes an action for the robot to take.
                     Ensure each relevant object is properly located before attempting to interact with it.
                     known objects for the task: {relevant_objects}
-                    all food objects can be acted on by slice and become <item>sliced for example applesliced
-                    Create a behavior tree for this task.
+                    all food objects can be acted on by slice and become <item>sliced. For example, slicing "apple" results in "applesliced"
+                    Here is an example of a properly formed XML behavior tree: 
+                    {example}
+
+                    Now, please create a behavior tree in XML format for a robot to execute this task: 
+                    "{task}"
                 '''
         instruction = {"role": 'system', 'content': system_message}
         message = {"role": "user", "content": f"Behavior Tree for {task}:"}
@@ -75,7 +79,7 @@ class LLMInterface:
         system_message = f'''
             Task: "{task}"
             Sub-Tree containing ERROR: {original_bt_xml}.
-            Here is an example of a properly formed XML behavior tree:
+            Here is an example of an excelent behavior tree:
             {example}
             Sequence tags execute all children until a child action fails or a condition check returns False then exits.
             Selector tags execute each child until an action child succeeds or a condition check returns True then exits.
@@ -83,7 +87,7 @@ class LLMInterface:
             The behavior tree failed to complete task {task} due to blocking condition: {feedback}. {error_info}
             Update the behavior tree to account for this failure, considering the following:
             - The action tags must come from this list: {actions}.
-            - The conditions that may apply to the state must come from this list: {conditions}
+            - The conditions that may apply to the actions come from this list ALL ACTIONS HAVE CONDITIONS: {conditions}
             - Relevant objects for the task:  {known_objects}
             - all food objects can be acted on by slice and become <item>sliced for example applesliced
             Modify the Behavior tree to address: {feedback}.

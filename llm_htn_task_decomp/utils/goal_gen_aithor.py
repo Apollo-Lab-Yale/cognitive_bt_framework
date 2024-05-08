@@ -28,7 +28,9 @@ def get_make_coffee(sim):
     cup = [node for node in graph["objects"] if "Mug" in node["objectId"] and node['canFillWithLiquid']][0]
     coffee_maker = [node for node in graph["objects"] if "CoffeeMachine" in node["objectId"]][0]
     goals = [f"ON {coffee_maker['objectId']}", f"ON {cup['objectId']} {coffee_maker['objectId']}"]
-    return goals, f"Make coffee in the {cup['objectId']} with coffee from the {coffee_maker['objectId']}"
+    return ""
+
+
 
 def get_make_toast(sim):
     graph = sim.get_graph()
