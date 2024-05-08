@@ -25,9 +25,19 @@ AI2THOR_ACTIONS = [
     'movebackward',
     'turnaround',
     'lookup',
-    'lookdown'
+    'lookdown',
+    'scanroom'
 ]
 
+AI2THOR_NO_TARGET = [
+    'moveforward',
+    'movebackward',
+    'turnaround',
+    'lookup',
+    'lookdown',
+    'turnleft',
+    'turnright',
+]
 
 AI2THOR_PREDICATES = [
     'visible',
@@ -54,8 +64,7 @@ AI2THOR_PREDICATES = [
     'pickupable',
     'isPickedUp',
     "inRoom",
-    'moveable',
-    'scanroom'
+    'moveable'
 ]
 
 AI2THOR_TO_VHOME = {

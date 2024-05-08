@@ -11,7 +11,7 @@ import datetime
 from llm_htn_task_decomp.src.llm_interface.llm_interface_openai import LLMInterface
 from llm_htn_task_decomp.utils.db_utils import setup_database, add_behavior_tree, store_feedback,\
     start_new_episode, store_object_state, retrieve_object_states_by_object_id, retrieve_object_states_by_episode
-from llm_htn_task_decomp.utils.bt_utils import parse_node, parse_bt_xml, BASE_EXAMPLE
+from llm_htn_task_decomp.utils.bt_utils import parse_node, parse_bt_xml, BASE_EXAMPLE, FORMAT_EXAMPLE
 from llm_htn_task_decomp.utils.goal_gen_aithor import get_wash_mug_in_sink_goal
 from llm_htn_task_decomp.src.sim.ai2_thor.utils import AI2THOR_ACTIONS, AI2THOR_PREDICATES
 from llm_htn_task_decomp.src.sim.ai2_thor.ai2_thor_sim import AI2ThorSimEnv
@@ -51,7 +51,7 @@ class CognitiveBehaviorTreeFramework:
                     existing_task_name = row[1]
                     existing_embedding = np.frombuffer(row[0], dtype=np.float32)
                     similarity = np.dot(embedding, existing_embedding) / (np.linalg.norm(embedding) * np.linalg.norm(existing_embedding))
-                    if task_name == existing_task_name or (similarity > highest_similarity and similarity > self.cosine_similarity_threshold):
+                    if task_name == existing_task_name or embedding == existing_embedding or (similarity > highest_similarity and similarity > self.cosine_similarity_threshold):
                         best_match = row[0]
                         highest_similarity = similarity
                 except Exception as e:
@@ -67,7 +67,7 @@ class CognitiveBehaviorTreeFramework:
         if bt_xml is None:
             bt_xml = self.llm_interface.get_behavior_tree(task_name, self.actions, self.conditions, self.example, self.known_objects)
             self.save_behavior_tree(task_name, bt_xml, task_id)
-        return parse_bt_xml(bt_xml), bt_xml
+        return parse_bt_xml(bt_xml , self.actions, self.conditions), bt_xml
 
     def load_behavior_tree(self, task_id):
         if task_id in self.bt_cache:
@@ -108,10 +108,14 @@ class CognitiveBehaviorTreeFramework:
             if rows is not None:
                 obs = []
                 for row in rows:
-                    obs.append(row[0].split('|')[0])
+                    splt = row[0].split('|')
+                    if splt[-1][0].isalpha():
+                        obs.append(splt[-1])
+                    else:
+                        obs.append(splt[0])
                 self.known_objects = set(obs)
             else:
-                self.known_objects = set([obj.split('|')[0] for obj in self.memory.object_cache])
+                self.known_objects = set([obj.split('|')[0] if not obj.split('|')[-1].isalpha() else obj.split('|')[-1] for obj in self.memory.object_cache])
 
     def update_bt(self, task_name, task_id, bt_xml):
         with self.connect_db() as conn:
@@ -130,7 +134,7 @@ class CognitiveBehaviorTreeFramework:
         refined_bt_xml = self.llm_interface.refine_behavior_tree(task_name, self.actions, self.conditions, bt_xml, feedback, self.known_objects, self.example)
         if refined_bt_xml:
             self.update_bt(task_name, task_id, refined_bt_xml)
-            return parse_bt_xml(refined_bt_xml)
+            return parse_bt_xml(refined_bt_xml, self.actions, self.conditions)
             print("Behavior Tree refined and updated.")
         else:
             print("Unable to refine behavior tree based on feedback.")
@@ -144,8 +148,15 @@ class CognitiveBehaviorTreeFramework:
         task_incomplete = True
         task_id = self.find_most_similar_task(task_embedding, task_name)
         self.update_known_objects()
-        bt_root, bt_xml = self.load_or_generate_bt(task_id, task_name)
-        success, msg, subtree_xml = self.execute_behavior_tree(bt_root)
+
+        try:
+            bt_root, bt_xml = self.load_or_generate_bt(task_id, task_name)
+            success, msg, subtree_xml = self.execute_behavior_tree(bt_root)
+        except Exception as e:
+            print(f"Failed to execute or parse behavior tree due to {e}.")
+            subtree_xml = "NO SUBTREE DUE TO FAILURE"
+            success = False
+            msg = str(e)
         while task_incomplete:
             self.update_known_objects()
             # Get feedback based on execution, simulated here as a function

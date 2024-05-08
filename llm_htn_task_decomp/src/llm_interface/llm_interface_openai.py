@@ -52,10 +52,11 @@ class LLMInterface:
                     The conditions that may apply to the state must come from this list: {conditions}
                     Here is an example of a properly formed XML behavior tree: 
                     {example}
-                    Sequence tags execute all children until one fails then exits. 
-                    Selector tags execute each child until one succeeds then exits.
+                    Sequence tags execute all children until a child action fails or a condition check returns False then exits.
+                    Selector tags execute each child until an action child succeeds or a condition check returns True then exits.
+                    Both Selector and Sequence may exit before all children are executed.
                     Ensure each relevant object is properly located before attempting to interact with it.
-                    Relevant objects for the task: {relevant_objects}
+                    known objects for the task: {relevant_objects}
                     all food objects can be acted on by slice and become <item>sliced for example applesliced
                     Create a behavior tree for this task.
                 '''
@@ -76,8 +77,9 @@ class LLMInterface:
             Sub-Tree containing ERROR: {original_bt_xml}.
             Here is an example of a properly formed XML behavior tree:
             {example}
-            Sequence tags execute all children until one fails then exits. 
-            Selector tags execute each child until one succeeds then exits.
+            Sequence tags execute all children until a child action fails or a condition check returns False then exits.
+            Selector tags execute each child until an action child succeeds or a condition check returns True then exits.
+            Both Selector and Sequence may exit before all children are executed.
             The behavior tree failed to complete task {task} due to blocking condition: {feedback}. {error_info}
             Update the behavior tree to account for this failure, considering the following:
             - The action tags must come from this list: {actions}.
