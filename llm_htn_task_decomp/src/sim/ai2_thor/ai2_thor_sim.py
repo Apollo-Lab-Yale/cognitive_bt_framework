@@ -433,7 +433,7 @@ class AI2ThorSimEnv:
             cond_objs = []
             msg = ''
             if not object_state[cond]:
-                cond_objs=  [obj['objectId'].split('|')[0] for obj in current_state['objects'] if obj[cond]]
+                cond_objs=  [obj['objectId'].split('|')[-1] if obj['objectId'].split('|')[-1].isalpha() else  obj['objectId'].split('|')[0] for obj in current_state['objects'] if obj[cond]]
                 msg = f"These objects satisfy the condition {cond}: f{cond_objs}"
             return object_state[cond], msg
 

@@ -187,5 +187,5 @@ if __name__ == "__main__":
     sim = AI2ThorSimEnv()
     # goal, _ = get_make_coffee(sim)
     cbtf = CognitiveBehaviorTreeFramework(sim)
-    cbtf.set_goal('apple')
-    print(cbtf.manage_task("put the apple in the fridge"))
+    cbtf.set_goal('water_cup')
+    print(cbtf.manage_task("fill a cup with water from the faucet"))
