@@ -48,16 +48,16 @@ class LLMInterface:
         """
         system_message = f'''
                     You are going to be tasked with creating a behavior tree in XML format for a robot to execute a specific task.
-                    The <Action> tags must come from this list: {actions}.
-                    The conditions that may apply to the state must come from this list: {conditions}
+                    The <Action> tags must come from this list: {actions}. Other actions are not allowed.
+                    The conditions that may apply to the state must come from this list: {conditions}. Other conditions are not allowed.
                     Here is a description of tags you are allowed to use:
                     <Sequence> tags execute all children until a child action fails or a <condition> check returns False then exits.
                     <Selector> tags execute each child until an action child succeeds or a <condition> check returns True then exits.
                     Both <Selector> and <Sequence> may exit before all children are executed.
                     <Action> describes an action for the robot to take.
                     Ensure each relevant object is properly located before attempting to interact with it.
-                    known objects for the task: {relevant_objects}
-                    all food objects can be acted on by slice and become <item>sliced. For example, slicing "apple" results in "applesliced"
+                    known objects for the task: {relevant_objects}. Other objects do not exist and cannot be used. 
+                    The one exception to the above requirement is: all food objects can be acted on by slice and become <item>sliced. For example, slicing "apple" results in "applesliced"
                     Here is an example of a properly formed XML behavior tree: 
                     {example}
 
@@ -77,20 +77,16 @@ class LLMInterface:
         """
         error_info = f"Error Category: {error_category}" if error_category else ""
         system_message = f'''
-            Task: "{task}"
-            Sub-Tree containing ERROR: {original_bt_xml}.
-            Here is an example of an excelent behavior tree:
-            {example}
-            Sequence tags execute all children until a child action fails or a condition check returns False then exits.
-            Selector tags execute each child until an action child succeeds or a condition check returns True then exits.
-            Both Selector and Sequence may exit before all children are executed.
-            The behavior tree failed to complete task {task} due to blocking condition: {feedback}. {error_info}
-            Update the behavior tree to account for this failure, considering the following:
-            - The action tags must come from this list: {actions}.
-            - The conditions that may apply to the actions come from this list ALL ACTIONS HAVE CONDITIONS: {conditions}
-            - Relevant objects for the task:  {known_objects}
-            - all food objects can be acted on by slice and become <item>sliced for example applesliced
-            Modify the Behavior tree to address: {feedback}.
+            This is the task that was attempted: "{task}"
+
+            The behavior tree provided for this task resulted in an error. 
+            This is the sub-tree where the error occurred: {original_bt_xml}
+            This is the associated feedback and error info describing the error: {feedback}. {error_info}
+            Please modify the behavior tree to account for this failure, with the following requirements:
+            1. This is the list of valid actions for an <Action> tag: {actions}. Other actions are not allowed.
+            2. The <condition>s that may apply to the actions come from this list: {conditions}. Other conditions are not allowed.
+            3. These are the relevant objects for the task:  {known_objects}. You may not use any other objects besides the ones listed.
+            The one exception to requirement 3 is: all food objects can be acted on by the slice action and become <item>sliced. For example, "apple" becomes "applesliced".
         '''
         prompt = [
             {"role": "system", "content": system_message},
