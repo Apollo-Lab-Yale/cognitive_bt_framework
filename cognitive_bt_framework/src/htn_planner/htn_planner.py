@@ -1,5 +1,5 @@
-from llm_htn_task_decomp.src.llm_interface.llm_interface_openai import LLMInterface
-from llm_htn_task_decomp.utils.htn_db_utils import setup_database
+from cognitive_bt_framework.src.llm_interface.llm_interface_openai import LLMInterface
+from cognitive_bt_framework.utils.htn_db_utils import setup_database
 from cachetools import LRUCache
 
 import sqlite3

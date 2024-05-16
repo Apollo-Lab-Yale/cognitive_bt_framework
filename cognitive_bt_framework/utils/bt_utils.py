@@ -1,5 +1,5 @@
 import xml.etree.ElementTree as ET
-from llm_htn_task_decomp.src.sim.ai2_thor.utils import AI2THOR_NO_TARGET
+from cognitive_bt_framework.src.sim.ai2_thor.utils import AI2THOR_NO_TARGET
 
 BASE_EXAMPLE = '''
 <?xml version="1.0"?>
