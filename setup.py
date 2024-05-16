@@ -4,7 +4,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setup(
-    name="llm_htn_task_decomp",
+    name="cognitive_bt_framework",
     version="0.1.0",
     author="Your Name",
     author_email="your.email@example.com",

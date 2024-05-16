@@ -8,15 +8,15 @@ import json
 import datetime
 
 
-from llm_htn_task_decomp.src.llm_interface.llm_interface_openai import LLMInterface
-from llm_htn_task_decomp.utils.db_utils import setup_database, add_behavior_tree, store_feedback,\
+from cognitive_bt_framework.src.llm_interface.llm_interface_openai import LLMInterface
+from cognitive_bt_framework.utils.db_utils import setup_database, add_behavior_tree, store_feedback,\
     start_new_episode, store_object_state, retrieve_object_states_by_object_id, retrieve_object_states_by_episode
-from llm_htn_task_decomp.utils.bt_utils import parse_node, parse_bt_xml, BASE_EXAMPLE, FORMAT_EXAMPLE
-from llm_htn_task_decomp.utils.goal_gen_aithor import get_wash_mug_in_sink_goal, get_make_coffee, get_put_apple_in_fridge_goal
-from llm_htn_task_decomp.src.sim.ai2_thor.utils import AI2THOR_ACTIONS, AI2THOR_PREDICATES
-from llm_htn_task_decomp.src.sim.ai2_thor.ai2_thor_sim import AI2ThorSimEnv
-from llm_htn_task_decomp.src.cbt_planner.memory import Memory
-from llm_htn_task_decomp.src.bt_validation.validate import validate_bt
+from cognitive_bt_framework.utils.bt_utils import parse_node, parse_bt_xml, BASE_EXAMPLE, FORMAT_EXAMPLE
+from cognitive_bt_framework.utils.goal_gen_aithor import get_wash_mug_in_sink_goal, get_make_coffee, get_put_apple_in_fridge_goal
+from cognitive_bt_framework.src.sim.ai2_thor.utils import AI2THOR_ACTIONS, AI2THOR_PREDICATES
+from cognitive_bt_framework.src.sim.ai2_thor.ai2_thor_sim import AI2ThorSimEnv
+from cognitive_bt_framework.src.cbt_planner.memory import Memory
+from cognitive_bt_framework.src.bt_validation.validate import validate_bt
 DEFAULT_DB_PATH = '/home/liam/dev/llm_htn_task_decomp/llm_htn_task_decomp/src/cbt_planner/'
 
 class CognitiveBehaviorTreeFramework:

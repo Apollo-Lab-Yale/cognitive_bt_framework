@@ -1,4 +1,4 @@
-from llm_htn_task_decomp.src.sim.ai2_thor.ai2_thor_sim import AI2ThorSimEnv
+from cognitive_bt_framework.src.sim.ai2_thor.ai2_thor_sim import AI2ThorSimEnv
 def get_put_apple_in_fridge_goal(sim : AI2ThorSimEnv):
     graph = sim.get_graph()
     apple = [node for node in graph["objects"] if "Apple" in node["objectId"]][0]

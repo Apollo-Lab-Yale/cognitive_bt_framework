@@ -1,6 +1,6 @@
 import openai
 from openai import OpenAI
-from llm_htn_task_decomp.utils import setup_openai, get_openai_key
+from cognitive_bt_framework.utils import setup_openai, get_openai_key
 from ratelimit import limits, sleep_and_retry
 
 
@@ -173,7 +173,7 @@ class LLMInterface:
         return refined_behavior_tree_xml
 
 if __name__ == "__main__":
-    from llm_htn_task_decomp.src.sim.ai2_thor.utils import AI2THOR_ACTIONS
+    from cognitive_bt_framework.src.sim.ai2_thor.utils import AI2THOR_ACTIONS
     # Example usage
     llm_interface = LLMInterface()
     task = "Clean the kitchen"

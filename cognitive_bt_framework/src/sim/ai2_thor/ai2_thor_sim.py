@@ -3,11 +3,11 @@ import numpy as np
 import time
 import prior
 import random
-from llm_htn_task_decomp.src.sim.ai2_thor.utils import get_visible_objects, get_predicates, CLOSE_DISTANCE, find_closest_position, is_in_room, get_yaw_angle, get_vhome_to_thor_dict, get_inf_floor_polygon, \
+from cognitive_bt_framework.src.sim.ai2_thor.utils import get_visible_objects, get_predicates, CLOSE_DISTANCE, find_closest_position, is_in_room, get_yaw_angle, get_vhome_to_thor_dict, get_inf_floor_polygon, \
     NO_VALID_PUT, Event, PUT_COLLISION
-from llm_htn_task_decomp.src.sim.ai2_thor.image_saver import SaveImagesThread
+from cognitive_bt_framework.src.sim.ai2_thor.image_saver import SaveImagesThread
 
-from llm_htn_task_decomp.utils.logic_utils import parse_instantiated_predicate
+from cognitive_bt_framework.utils.logic_utils import parse_instantiated_predicate
 def get_ithor_scene_single_room(room, index = -1):
     broken_rooms = [2, 5, 17, 22]
     if index > 0:
