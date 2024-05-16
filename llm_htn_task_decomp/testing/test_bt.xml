@@ -1,0 +1,106 @@
+<root main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <Sequence name="ScrubSinkSequence">
+      <!-- Step 1: Walk to the kitchen -->
+      <RecoveryNode number_of_retries="3" name="WalkToKitchenRecovery">
+        <walk_to_room room="kitchen">
+          <Predicate name="at">
+            <parameters>
+              <Parameter ID="Location" value="kitchen"/>
+            </parameters>
+          </Predicate>
+        </walk_to_room>
+      </RecoveryNode>
+
+      <!-- Step 2: Scan the kitchen to find the sink -->
+      <RecoveryNode number_of_retries="3" name="ScanKitchenRecovery">
+        <scan_room>
+          <Predicate name="see">
+            <parameters>
+              <Parameter ID="Object" value="sink"/>
+            </parameters>
+          </Predicate>
+        </scan_room>
+      </RecoveryNode>
+
+      <!-- Step 3: Walk to the sink -->
+      <RecoveryNode number_of_retries="3" name="WalkToSinkRecovery">
+        <walk_to_object object="sink">
+          <Predicate name="at">
+            <parameters>
+              <Parameter ID="Location" value="sink"/>
+            </parameters>
+          </Predicate>
+        </walk_to_object>
+      </RecoveryNode>
+
+      <!-- Step 4: Toggle on the water -->
+      <RecoveryNode number_of_retries="3" name="ToggleOnWaterRecovery">
+        <toggle_on object="faucet">
+          <Predicate name="is">
+            <parameters>
+              <Parameter ID="State" value="off"/>
+              <Parameter ID="Object" value="faucet"/>
+            </parameters>
+          </Predicate>
+        </toggle_on>
+      </RecoveryNode>
+
+      <!-- Step 5: Grab a scrubber -->
+      <RecoveryNode number_of_retries="3" name="GrabScrubberRecovery">
+        <grab object="scrubber">
+          <Predicate name="exists">
+            <parameters>
+              <Parameter ID="Object" value="scrubber"/>
+            </parameters>
+          </Predicate>
+        </grab>
+      </RecoveryNode>
+
+      <!-- Step 6: Scrub the sink -->
+      <RecoveryNode number_of_retries="3" name="ScrubSinkRecovery">
+        <Action name="scrub">
+          <Predicate name="dirty">
+            <parameters>
+              <Parameter ID="Object" value="sink"/>
+            </parameters>
+          </Predicate>
+        </Action>
+      </RecoveryNode>
+
+      <!-- Step 7: Toggle off the water -->
+      <RecoveryNode number_of_retries="3" name="ToggleOffWaterRecovery">
+        <toggle_off object="faucet">
+          <Predicate name="is">
+            <parameters>
+              <Parameter ID="State" value="on"/>
+              <Parameter ID="Object" value="faucet"/>
+            </parameters>
+          </Predicate>
+        </toggle_off>
+      </RecoveryNode>
+
+      <!-- Step 8: Walk to the storage -->
+      <RecoveryNode number_of_retries="3" name="WalkToStorageRecovery">
+        <walk_to_room room="storage">
+          <Predicate name="at">
+            <parameters>
+              <Parameter ID="Location" value="storage"/>
+            </parameters>
+          </Predicate>
+        </walk_to_room>
+      </RecoveryNode>
+
+      <!-- Step 9: Put the scrubber back -->
+      <RecoveryNode number_of_retries="3" name="PutScrubberBackRecovery">
+        <put_in object="scrubber">
+          <Predicate name="holding">
+            <parameters>
+              <Parameter ID="Object" value="scrubber"/>
+            </parameters>
+          </Predicate>
+        </put_in>
+      </RecoveryNode>
+    </Sequence>
+  </BehaviorTree>
+</root>
