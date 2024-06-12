@@ -152,7 +152,6 @@ class HTNPlanner:
                 print("Unable to refine decomposition based on feedback.")
                 return original_decomposition
 
-
 # Example usage
 if __name__ == "__main__":
     # Assuming `llm_interface` is an instance of `LLMInterface` set up as previously described
@@ -160,6 +159,10 @@ if __name__ == "__main__":
     planner = HTNPlanner(llm_interface)
 
     # Decompose a task using the LLM (assuming the LLM interface can handle this task)
-    print(planner.decompose_task("clean the kitchen"))
 
-    print(planner.find_closest_task("organize an event to help build friendships for the team"))
+    print(planner.llm_interface.get_task_id('fill a cup with water from the sink'))
+    print(planner.llm_interface.get_task_id('get a cup of water'))
+    # print()
+    # print(planner.decompose_task("clean the kitchen"))
+    #
+    # print(planner.find_closest_task("organize an event to help build friendships for the team"))

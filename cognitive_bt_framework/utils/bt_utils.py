@@ -4,128 +4,128 @@ from cognitive_bt_framework.src.sim.ai2_thor.utils import AI2THOR_NO_TARGET
 BASE_EXAMPLE = '''
 <?xml version="1.0"?>
 <root>
-    <selector>
-        <sequence name="Water Filling Task">
+    <Selector>
+        <Sequence name="Water Filling Task">
             <!-- Navigate to the room with the glass -->
-            <action name="walk_to_room" target="kitchen"/>
+            <Action name="walk_to_room" target="kitchen"/>
             <!-- Locate the glass -->
-            <selector name="Locate Glass">
+            <Selector name="Locate Glass">
                 <!-- Check if the glass is visible -->
-                <condition name="visible" target="glass"/>
+                <Condition name="visible" target="glass"/>
                 <!-- If not visible, scan the room -->
-                <sequence name="Adjust and Scan Glass">
-                    <action name="scanroom" target="glass"/>
-                    <condition name="visible" target="glass"/>
-                </sequence>
-            </selector>
+                <Sequence name="Adjust and Scan Glass">
+                    <Action name="scanroom" target="glass"/>
+                    <Condition name="visible" target="glass"/>
+                </Sequence>
+            </Selector>
             <!-- Navigate to the glass -->
-            <action name="walk_to_object" target="glass"/>
+            <Action name="walk_to_object" target="glass"/>
             <!-- Pick up the glass -->
-            <action name="grab" target="glass"/>
+            <Action name="grab" target="glass"/>
             <!-- Locate the faucet -->
-            <selector name="Locate Faucet After Grabbing Glass">
+            <Selector name="Locate Faucet After Grabbing Glass">
                 <!-- Check if the faucet is visible -->
-                <condition name="visible" target="faucet"/>
+                <Condition name="visible" target="faucet"/>
                 <!-- If not visible, scan the room -->
-                <sequence name="Adjust and Scan Faucet">
-                    <action name="scanroom" target="faucet"/>
-                    <condition name="visible" target="faucet"/>
-                </sequence>
-            </selector>
+                <Sequence name="Adjust and Scan Faucet">
+                    <Action name="scanroom" target="faucet"/>
+                    <Condition name="visible" target="faucet"/>
+                </Sequence>
+            </Selector>
             <!-- Navigate to the faucet -->
-            <action name="walk_to_object" target="faucet"/>
+            <Action name="walk_to_object" target="faucet"/>
             <!-- Place the glass in the sink basin -->
-            <action name="put" target="sinkBasin"/>
+            <Action name="put" target="sinkBasin"/>
             <!-- Check if faucet is off before turning it on -->
-            <selector name="Ensure Faucet Off">
-                <condition name="isToggled" target="faucet"/>
+            <Selector name="Ensure Faucet Off">
+                <Condition name="isToggled" target="faucet"/>
                 <!-- Turn on the faucet if it is not toggled-->
-                <action name="switchon" target="faucet"/>
-            </selector>
+                <Action name="switchon" target="faucet"/>
+            </Selector>
             <!-- Fill the glass with water -->
-            <sequence name="Fill Glass">
+            <Sequence name="Fill Glass">
                 <!-- Check if the glass can be filled -->
-                <condition name="canFillWithLiquid" target="glass"/>
+                <Condition name="canFillWithLiquid" target="glass"/>
                 <!-- Check if the glass is filled with liquid -->
-                <condition name="isFilledWithLiquid" target="glass"/>
-            </sequence>
+                <Condition name="isFilledWithLiquid" target="glass"/>
+            </Sequence>
             <!-- Turn off the faucet -->
-            <action name="switchoff" target="faucet"/>
+            <Action name="switchoff" target="faucet"/>
             <!-- Pick up the filled glass from the sink basin -->
-            <action name="grab" target="glass"/>
+            <Action name="grab" target="glass"/>
             <!-- Place the filled glass on the countertop -->
-            <action name="put" target="CounterTop"/>
-        </sequence>
-    </selector>
+            <Action name="put" target="CounterTop"/>
+        </Sequence>
+    </Selector>
 </root>
 '''
 
 FORMAT_EXAMPLE = '''
 <?xml version="1.0"?>
 <root>
-  <selector>
-    <!-- Subtask 1: Define the first sequence and the conditions/actions with fallback options described in comments -->
-    <sequence name="Subtask1">
-      <selector>
-        <!-- Primary conditions and action for the first action -->
-        <sequence>
-          <condition name="condition1_for_action1" target="target1_for_action1"/>
-          <condition name="condition2_for_action1" target="target2_for_action1"/>
-          <action name="action1"/>
-        </sequence>
+  <Selector>
+    <!-- Subtask 1: Define the first Sequence and the conditions/actions with fallback options described in comments -->
+    <Sequence name="Subtask1">
+      <Selector>
+        <!-- Primary conditions and Action for the first Action -->
+        <Sequence>
+          <Condition name="condition1_for_action1" target="target1_for_action1"/>
+          <Condition name="condition2_for_action1" target="target2_for_action1"/>
+          <Action name="action1"/>
+        </Sequence>
         <!-- Fallback options if the conditions above fail (described in comments) -->
-        <!-- Fallback conditions and action for the first action -->
-        <sequence>
-          <condition name="alternative_condition1_for_action1" target="alternative_target1_for_action1"/>
-          <action name="action2"/>
-        </sequence>
-      </selector>
+        <!-- Fallback conditions and Action for the first Action -->
+        <Sequence>
+          <Condition name="alternative_condition1_for_action1" target="alternative_target1_for_action1"/>
+          <Action name="action2"/>
+        </Sequence>
+      </Selector>
       
-      <!-- Repeat the pattern for the second action with fallback described in comments -->
-      <selector>
-        <sequence>
-          <condition name="condition1_for_action2" target="target1_for_action2"/>
-          <condition name="condition2_for_action2" target="target2_for_action2"/>
-          <action name="action3"/>
-        </sequence>
-        <!-- Fallback conditions and action for the second action -->
-        <sequence>
-          <condition name="alternative_condition1_for_action2" target="alternative_target1_for_action2"/>
-          <action name="action4"/>
-        </sequence>
-      </selector>
-    </sequence>
+      <!-- Repeat the pattern for the second Action with fallback described in comments -->
+      <Selector>
+        <Sequence>
+          <Condition name="condition1_for_action2" target="target1_for_action2"/>
+          <Condition name="condition2_for_action2" target="target2_for_action2"/>
+          <Action name="action3"/>
+        </Sequence>
+        <!-- Fallback conditions and Action for the second Action -->
+        <Sequence>
+          <Condition name="alternative_condition1_for_action2" target="alternative_target1_for_action2"/>
+          <Action name="action4"/>
+        </Sequence>
+      </Selector>
+    </Sequence>
     
-    <!-- Subtask 2: Define the second sequence and the conditions/actions with fallback options described in comments -->
-    <sequence name="Subtask2">
-      <selector>
-        <sequence>
-          <condition name="condition1_for_action3" target="target1_for_action3"/>
-          <condition name="condition2_for_action3" target="target2_for_action3"/>
-          <action name="action5"/>
-        </sequence>
-        <!-- Fallback conditions and action for the third action -->
-        <sequence>
-          <condition name="alternative_condition1_for_action3" target="alternative_target1_for_action3"/>
-          <action name="action6"/>
-        </sequence>
-      </selector>
+    <!-- Subtask 2: Define the second Sequence and the conditions/actions with fallback options described in comments -->
+    <Sequence name="Subtask2">
+      <Selector>
+        <Sequence>
+          <Condition name="condition1_for_action3" target="target1_for_action3"/>
+          <Condition name="condition2_for_action3" target="target2_for_action3"/>
+          <Action name="action5"/>
+        </Sequence>
+        <!-- Fallback conditions and Action for the third Action -->
+        <Sequence>
+          <Condition name="alternative_condition1_for_action3" target="alternative_target1_for_action3"/>
+          <Action name="action6"/>
+        </Sequence>
+      </Selector>
       
-      <!-- Repeat the pattern for the fourth action with fallback described in comments -->
-      <selector>
-        <sequence>
-          <condition name="condition1_for_action4" target="target1_for_action4"/>
-          <condition name="condition2_for_action4" target="target2_for_action4"/>
-          <action name="action7"/>
-        </sequence>
-        <!-- Fallback conditions and action for the fourth action -->
-        <sequence>
-          <condition name="alternative_condition1_for_action4" target="alternative_target1_for_action4"/>
-          <action name="action8"/>
-        </sequence>
-      </selector>
-    </sequence>
-  </selector>
+      <!-- Repeat the pattern for the fourth Action with fallback described in comments -->
+      <Selector>
+        <Sequence>
+          <Condition name="condition1_for_action4" target="target1_for_action4"/>
+          <Condition name="condition2_for_action4" target="target2_for_action4"/>
+          <Action name="action7"/>
+        </Sequence>
+        <!-- Fallback conditions and Action for the fourth Action -->
+        <Sequence>
+          <Condition name="alternative_condition1_for_action4" target="alternative_target1_for_action4"/>
+          <Action name="action8"/>
+        </Sequence>
+      </Selector>
+    </Sequence>
+  </Selector>
 </root>
 
 '''
@@ -156,7 +156,7 @@ class Action(Node):
         return *interface.execute_actions([f"{self.name} {self.target}"], memory), self.to_xml()# Modify and return the new state
 
     def to_xml(self):
-        return f'<action name="{self.name}" target="{self.target}"/>'
+        return f'<Action name="{self.name}" target="{self.target}"/>'
 
 class Condition(Node):
     def __init__(self, name, target):
@@ -166,14 +166,14 @@ class Condition(Node):
             self.target = self.target.replace('_', '')
 
     def execute(self, state, interface, memory):
-        # Evaluate the condition against the state
+        # Evaluate the Conditionagainst the state
         success, msg = interface.check_condition(self.name, self.target, memory)
         if 'These objects satisfy the condition' in msg:
             msg = f"{self.name} is FALSE for object {self.target}. " + msg
         return success, msg, self.to_xml()
 
     def to_xml(self):
-        return f'<condition name="{self.name}" target="{self.target}"/>'
+        return f'<Condition name="{self.name}" target="{self.target}"/>'
 
 class Selector(Node):
     def __init__(self, name):
@@ -191,7 +191,7 @@ class Selector(Node):
 
     def to_xml(self):
         children_xml = "\n".join(child.to_xml() for child in self.children)
-        return f'<selector name="{self.name}">{children_xml}</selector>'
+        return f'<Selector name="{self.name}">{children_xml}</Selector>'
 
 
 class Sequence(Node):
@@ -211,7 +211,7 @@ class Sequence(Node):
 
     def to_xml(self):
         children_xml = "\n".join(child.to_xml() for child in self.children)
-        return f'<sequence name="{self.name}">{children_xml}</sequence>'
+        return f'<Sequence name="{self.name}">{children_xml}</Sequence>'
 
 
 

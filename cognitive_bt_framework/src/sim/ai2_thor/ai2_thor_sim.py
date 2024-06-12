@@ -181,6 +181,10 @@ class AI2ThorSimEnv:
                                                                         f'{object["objectId"].split("|")[0]}, '
                                                                         f'the object must be rinsed under water to wash.')
 
+    def get_object_classes(self):
+        objects = self.get_graph()['objects']
+        return [obj['objectId'].split('|')[0] for obj in objects]
+
     def navigate_to_room(self, target_room_str="bedroom"):
         target_room = None
         for room in self.scene["rooms"]:
