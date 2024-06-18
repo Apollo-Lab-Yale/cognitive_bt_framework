@@ -18,6 +18,7 @@ def setup_database(db_path):
                    ObjectID TEXT,
                    State TEXT,
                    EpisodeID TEXT,
+                   EnvID TEXT,
                    Timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
                    FOREIGN KEY (EpisodeID) REFERENCES Episodes(EpisodeID)
                );
@@ -34,7 +35,7 @@ def setup_database(db_path):
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS BehaviorTrees (
         BehaviorTreeID INTEGER PRIMARY KEY,
-        TaskID STRING NOT NULL,
+        TaskID STRING NOT NULL UNIQUE,
         BehaviorTreeXML TEXT,
         CreationDate TEXT,
         CreatedBy TEXT,
@@ -76,7 +77,7 @@ def add_behavior_tree(conn, task_id, task_name, initial_description, bt_xml, cre
     # task_id = cursor.lastrowid
 
     # Insert the initial behavior tree
-    cursor.execute("INSERT INTO BehaviorTrees (TaskID, BehaviorTreeXML, CreationDate, CreatedBy) VALUES (?, ?, datetime('now'), ?)", (task_id, bt_xml, created_by))
+    cursor.execute("REPLACE INTO BehaviorTrees (TaskID, BehaviorTreeXML, CreationDate, CreatedBy) VALUES (?, ?, datetime('now'), ?)", (task_id, bt_xml, created_by))
     conn.commit()
 
 def store_feedback(conn, behavior_tree_id, user_id, feedback_text):
@@ -112,12 +113,12 @@ def start_new_episode(db_path, task_name):
     conn.close()
     return episode_id
 
-def store_object_state(db_path, object_id, state, episode_id):
+def store_object_state(db_path, object_id, state, episode_id, env_id):
     timestamp = datetime.datetime.now().isoformat()
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO ObjectStates (ObjectID, State, EpisodeID, Timestamp) VALUES (?, ?, ?, ?)",
-                   (object_id, json.dumps(state), episode_id, timestamp))
+    cursor.execute("INSERT INTO ObjectStates (ObjectID, State, EpisodeID, Timestamp, EnvID) VALUES (?, ?, ?, ?, ?)",
+                   (object_id, json.dumps(state), episode_id, timestamp, env_id))
     conn.commit()
     conn.close()
 
@@ -137,7 +138,7 @@ def get_episodes_by_task(db_path, task_name):
     conn.close()
     return [episode[0] for episode in episodes]
 
-def retrieve_object_states_by_object_id(db_path, object_id):
+def retrieve_object_states_by_object_id(db_path, object_id, env_id):
     """
     Retrieves all records for a specific object across all episodes, sorted by timestamp.
 
@@ -153,14 +154,14 @@ def retrieve_object_states_by_object_id(db_path, object_id):
     cursor.execute("""
         SELECT EpisodeID, State, Timestamp 
         FROM ObjectStates 
-        WHERE ObjectID = ? 
+        WHERE ObjectID = ? AND EnvID = ?
         ORDER BY Timestamp ASC
-    """, (object_id,))
+    """, (object_id, env_id))
     results = cursor.fetchall()
     conn.close()
     return results
 
-def store_multiple_object_states(db_path, object_states, episode_id):
+def store_multiple_object_states(db_path, object_states, episode_id, env_id):
     """
     Stores states for multiple objects in a single database transaction.
 
@@ -170,7 +171,7 @@ def store_multiple_object_states(db_path, object_states, episode_id):
     - episode_id (str): The unique identifier of the episode.
     """
     # Convert state dictionaries to JSON strings within the tuple list
-    object_states_json = [(obj_id, json.dumps(state), episode_id, datetime.datetime.now().isoformat()) for obj_id, state in object_states]
+    object_states_json = [(obj_id, json.dumps(state), episode_id, datetime.datetime.now().isoformat(), env_id) for obj_id, state in object_states]
 
     # Connect to the database
     conn = sqlite3.connect(db_path)
@@ -178,7 +179,7 @@ def store_multiple_object_states(db_path, object_states, episode_id):
 
     # Prepare the SQL query for multiple inserts
     cursor.executemany(
-        "INSERT INTO ObjectStates (ObjectID, State, EpisodeID, Timestamp) VALUES (?, ?, ?, ?)",
+        "INSERT INTO ObjectStates (ObjectID, State, EpisodeID, Timestamp, EnvID) VALUES (?, ?, ?, ?, ?)",
         object_states_json
     )
 

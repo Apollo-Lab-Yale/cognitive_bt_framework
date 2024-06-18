@@ -5,7 +5,7 @@ from ratelimit import limits, sleep_and_retry
 
 
 class LLMInterface:
-    def __init__(self, model_name="gpt-4-turbo"):
+    def __init__(self, model_name="gpt-4o"):
         """
         Initialize the interface with your OpenAI API key and model choice.
         :param api_key: Your OpenAI API key.
@@ -38,8 +38,21 @@ class LLMInterface:
                                                     'each subgoal should be its own line with NO ADDITIONAL CHARACTERS, '
                                                     'in the format should be short camel case similar to a '
                                                     'c++ class name with no spaces. Please provide the most complete'
-                                                    'decomposition possible.'}
+                                                    'decomposition possible, include a name for the high level task'
+                                                    'in the same format as the subtasks as the first line of your response.'}
         message = {"role": "user", "content": f"Decompose the following task into detailed subtask steps: {task}"}
+        return [instruction, message]
+
+    def generate_prompt_task_id(self, task):
+        """
+        Generate a prompt for the task decomposition.
+        :param task: The task description.
+        :return: A string prompt for the GPT model.
+        """
+        instruction = {"role": 'system', 'content': 'You are assisting in generating a task id for a user requested task'
+                                                    ' the format should be short camel case similar to a '
+                                                    'c++ class name with no spaces.'}
+        message = {"role": "user", "content": f"Generate an id in the format described for this task: {task}"}
         return [instruction, message]
 
     def generate_behavior_tree_prompt(self, task, actions, conditions, example, relevant_objects):
@@ -47,21 +60,29 @@ class LLMInterface:
         Generate a prompt specifically for creating a behavior tree in XML format.
         """
         system_message = f'''
-                    You are going to be tasked with creating a behavior tree in XML format for a robot to execute a specific task.
-                    The <Action> tags must come from this list: {actions}. Other actions are not allowed.
-                    The conditions that may apply to the state must come from this list: {conditions}. Other conditions are not allowed.
-                    Here is a description of tags you are allowed to use:
-                    <Sequence> tags execute all children until a child action fails or a <condition> check returns False then exits.
-                    <Selector> tags execute each child until an action child succeeds or a <condition> check returns True then exits.
-                    Both <Selector> and <Sequence> may exit before all children are executed.
-                    <Action> describes an action for the robot to take.
-                    Ensure each relevant object is properly located before attempting to interact with it.
-                    known objects for the task: {relevant_objects}. Other objects do not exist and cannot be used. 
+                    You are going to be tasked with creating a behavior tree in XML format for a robot to execute a specific task. Follow these rules carefully:
+                    **Actions**: Use only the actions from this list:
+                     {actions}. 
+                     Other actions are not allowed.
+                    **Conditions**: Use only the conditions from this list:
+                    {conditions}.
+                    No other conditions are allowed.
+                    
+                    **Behavior Tree Structure**:
+                    - Use <Sequence> tags to execute all child actions or conditions in order until one fails or returns False.
+            -       - Use <Selector> tags to execute each child action or condition in order until one succeeds or returns True.
+                    
+                   **Object Classes**: You can only interact with objects from this list:
+                   {relevant_objects}.
+                   No other objects are allowed. Exception: Slicing a food object results in '<item>sliced', e.g., 'apple' becomes 'applesliced'.
                     The one exception to the above requirement is: all food objects can be acted on by slice and become <item>sliced. For example, slicing "apple" results in "applesliced"
-                    Here is an example of a properly formed XML behavior tree: 
+                    **Example Behavior Tree**:
+                    Here is an example of a properly formed XML behavior tree for the task "FillGlassWater":
                     {example}
-
-                    Now, please create a behavior tree in XML format for a robot to execute this task: 
+                    **Task**:
+                    Now, please create a behavior tree in XML format for the robot to execute the task: {task}'.
+        
+                    Ensure your response contains only the XML behavior tree and no additional text. 
                     "{task}"
                 '''
         instruction = {"role": 'system', 'content': system_message}
@@ -85,8 +106,9 @@ class LLMInterface:
             Please modify the behavior tree to account for this failure, with the following requirements:
             1. This is the list of valid actions for an <Action> tag: {actions}. Other actions are not allowed.
             2. The <condition>s that may apply to the actions come from this list: {conditions}. Other conditions are not allowed.
-            3. These are the relevant objects for the task:  {known_objects}. You may not use any other objects besides the ones listed.
+            3. These are the object classes I can detect, all targets must come from this list:  {known_objects}. You may not use any other objects besides the ones listed.
             The one exception to requirement 3 is: all food objects can be acted on by the slice action and become <item>sliced. For example, "apple" becomes "applesliced".
+            Your response should contain only the BT and no additional text.
         '''
         prompt = [
             {"role": "system", "content": system_message},
@@ -143,6 +165,11 @@ class LLMInterface:
         decomposition = self.query_llm(prompt)
         return decomposition
 
+    def get_task_id(self, task):
+        prompt = self.generate_prompt_task_id(task)
+        task_id = self.query_llm(prompt)
+        return task_id
+
 
     def get_behavior_tree(self, task, actions, conditions, example, known_objects):
         """
@@ -154,6 +181,10 @@ class LLMInterface:
         for i in range(len(behavior_tree_xml)):
             if behavior_tree_xml[i] == '<':
                 behavior_tree_xml = behavior_tree_xml[i:]
+                break
+        for i in range(len(behavior_tree_xml)):
+            if behavior_tree_xml[len(behavior_tree_xml) - i - 1] == '>':
+                behavior_tree_xml = behavior_tree_xml[:len(behavior_tree_xml) - i ]
                 break
         behavior_tree_xml = behavior_tree_xml.replace('```', '')
         return behavior_tree_xml

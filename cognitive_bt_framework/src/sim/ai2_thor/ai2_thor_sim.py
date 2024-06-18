@@ -73,7 +73,9 @@ class AI2ThorSimEnv:
         self.save_video = save_video
         if single_room is not None and single_room != '':
             scene = get_ithor_scene_single_room(single_room, index=scene_index)
+            self.scene_id = scene
         else:
+            self.scene_id = f"FloorPlan{scene_index}"
             dataset = prior.load_dataset("procthor-10k")
             scene = dataset["train"][scene_index]
         self.scene = scene
@@ -180,6 +182,10 @@ class AI2ThorSimEnv:
         return not object['isDirty'], '' if not object['isDirty'] else (f'Failed to wash '
                                                                         f'{object["objectId"].split("|")[0]}, '
                                                                         f'the object must be rinsed under water to wash.')
+
+    def get_object_classes(self):
+        objects = self.get_graph()['objects']
+        return [obj['objectId'].split('|')[0] for obj in objects]
 
     def navigate_to_room(self, target_room_str="bedroom"):
         target_room = None
@@ -377,7 +383,7 @@ class AI2ThorSimEnv:
             if memory is not None:
                 episode_id = memory.current_episode
                 objects_to_update = [(obj['objectId'], obj) for obj in state['objects']]
-                memory.store_multiple_object_states(objects_to_update, episode_id)
+                memory.store_multiple_object_states(objects_to_update, episode_id, self.scene_id)
             if not self.controller.last_event.metadata["lastActionSuccess"]:
                 return self.controller.last_event.metadata["lastActionSuccess"], self.controller.last_event.metadata[
                     "errorMessage"]
@@ -414,7 +420,7 @@ class AI2ThorSimEnv:
 
         # Bulk update all objects in the current state
         objects_to_update = [(obj['objectId'], obj) for obj in current_state['objects']]
-        memory.store_multiple_object_states(objects_to_update, episode_id)
+        memory.store_multiple_object_states(objects_to_update, episode_id, self.scene_id)
 
         # Find specific target object
         object_state = next((obj for obj in current_state['objects'] if target in obj['objectId'].lower()), None)
@@ -451,7 +457,7 @@ class AI2ThorSimEnv:
                 continue
             # Bulk update all objects in the current state
             objects_to_update = [(obj['objectId'], obj) for obj in current_state['objects']]
-            memory.store_multiple_object_states(objects_to_update, episode_id)
+            memory.store_multiple_object_states(objects_to_update, episode_id, self.scene_id)
 
             if target in current_state['room_names']:
                 ret = self.action_fn_from_str[act](target)

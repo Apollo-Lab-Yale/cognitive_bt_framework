@@ -2,35 +2,49 @@ import sqlite3
 import os
 import numpy as np
 from cachetools import LRUCache
-from transformers import AutoTokenizer, AutoModel
+from transformers import AutoTokenizer, AutoModel, BertTokenizer, BertModel, RobertaTokenizer, RobertaModel
 import torch
 import json
 import datetime
-
+from keybert import KeyBERT
+from sentence_transformers import SentenceTransformer, util
 
 from cognitive_bt_framework.src.llm_interface.llm_interface_openai import LLMInterface
-from cognitive_bt_framework.utils.db_utils import setup_database, add_behavior_tree, store_feedback,\
-    start_new_episode, store_object_state, retrieve_object_states_by_object_id, retrieve_object_states_by_episode
+from cognitive_bt_framework.src.htn_planner.htn_planner import HTNPlanner
+from cognitive_bt_framework.utils.db_utils import setup_database, add_behavior_tree
 from cognitive_bt_framework.utils.bt_utils import parse_node, parse_bt_xml, BASE_EXAMPLE, FORMAT_EXAMPLE
 from cognitive_bt_framework.utils.goal_gen_aithor import get_wash_mug_in_sink_goal, get_make_coffee, get_put_apple_in_fridge_goal
 from cognitive_bt_framework.src.sim.ai2_thor.utils import AI2THOR_ACTIONS, AI2THOR_PREDICATES
 from cognitive_bt_framework.src.sim.ai2_thor.ai2_thor_sim import AI2ThorSimEnv
 from cognitive_bt_framework.src.cbt_planner.memory import Memory
 from cognitive_bt_framework.src.bt_validation.validate import validate_bt
-DEFAULT_DB_PATH = '/home/liam/dev/llm_htn_task_decomp/llm_htn_task_decomp/src/cbt_planner/'
+from cognitive_bt_framework.utils.logic_utils import cosine_similarity, stop_words
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+
+def preprocess_text(text):
+    words = text.split()
+    filtered_words = [word for word in words if word.lower() not in stop_words]
+    return ' '.join(filtered_words)
+
+DEFAULT_DB_PATH = '/home/liam/dev/cognitive_bt_framework/cognitive_bt_framework/src/'
 
 class CognitiveBehaviorTreeFramework:
     def __init__(self, robot_interface, actions=AI2THOR_ACTIONS, conditions=AI2THOR_PREDICATES, db_path=DEFAULT_DB_PATH, model_name="gpt-3.5-turbo", sim=True):
         self.robot_interface = robot_interface
         self.db_path = db_path
         self.llm_interface = LLMInterface(model_name)
+        self.htn_planner = HTNPlanner(self.llm_interface)
         self.bt_cache = LRUCache(maxsize=100)
-        self.memory = Memory(db_path + f'behavior_tree_{robot_interface.scene["rooms"][0]["name"]}.db')
-        self.db_path +=  f'behavior_tree_{robot_interface.scene["rooms"][0]["name"]}.db'
+        self.memory = Memory(db_path + f'behavior_tree.db')
+        self.db_path += f'behavior_tree.db'
         self.actions = actions
         setup_database(self.db_path)
-        self.tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
-        self.model = AutoModel.from_pretrained("bert-base-uncased")
+        self.tokenizer = RobertaTokenizer.from_pretrained('roberta-base')
+        self.model = RobertaModel.from_pretrained('roberta-base')
+        self.keyword_model = KeyBERT('all-MiniLM-L6-v2')
+        self.keyword_embedder = SentenceTransformer('paraphrase-MiniLM-L6-v2')
+        self.object_names = set(robot_interface.get_object_classes())
         self.cosine_similarity_threshold = 0.90  # Cosine similarity threshold
         self.example = BASE_EXAMPLE
         self.conditions = conditions
@@ -38,41 +52,56 @@ class CognitiveBehaviorTreeFramework:
         self.goal = None
 
     def get_embedding(self, text):
+        # pp_text = preprocess_text(text)
         inputs = self.tokenizer(text, return_tensors="pt", truncation=True, max_length=512, padding='max_length')
         outputs = self.model(**inputs)
         return outputs.last_hidden_state.mean(dim=1).detach().numpy().tobytes()
-    def set_goal(self, goal):
-        self.goal = goal
+
+    def get_keywords(self, text, top_n=10):
+        keywords = self.keyword_model.extract_keywords(text, top_n=top_n)
+        return [keyword for keyword, score in keywords]
+
+
+    def get_keyword_similarity(self, keywords1, keywords2):
+        embeddings1 = self.keyword_embedder.encode(keywords1, convert_to_tensor=True)
+        embeddings2 = self.keyword_embedder.encode(keywords2, convert_to_tensor=True)
+
+        # Compute cosine similarity between embeddings
+        cosine_similarities = util.pytorch_cos_sim(embeddings1, embeddings2)
+        return cosine_similarities
+
     def find_most_similar_task(self, embedding, task_name):
         with self.connect_db() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT TaskID, TaskName FROM Tasks")
-            best_match = embedding
-            highest_similarity = 0
+            best_match = None
+            highest_similarity = -1
             for row in cursor.fetchall():
                 try:
                     existing_task_name = row[1]
                     existing_embedding = np.frombuffer(row[0], dtype=np.float32)
-                    similarity = np.dot(embedding, existing_embedding) / (np.linalg.norm(embedding) * np.linalg.norm(existing_embedding))
-                    if task_name == existing_task_name or embedding == existing_embedding or (similarity > highest_similarity and similarity > self.cosine_similarity_threshold):
+                    similarity = cosine_similarity(embedding, existing_embedding)
+                    if task_name == existing_task_name or similarity > highest_similarity:
                         best_match = row[0]
                         highest_similarity = similarity
                 except Exception as e:
                     pass
             return best_match
 
+    def set_goal(self, goal):
+        self.goal = goal
+
+
     def connect_db(self):
         return sqlite3.connect(self.db_path)
 
     def load_or_generate_bt(self, task_id, task_name):
-        bt_xml = None
         bt_xml = self.load_behavior_tree(task_id)
         if bt_xml is None:
-            bt_xml = self.llm_interface.get_behavior_tree(task_name, self.actions, self.conditions, self.example, self.known_objects)
-            isValid = validate_bt(bt_xml)
-            return any([obj['fillLiquid'] == 'coffee' for obj in state["objects"] if 'mug' in obj['objectId'].lower()])
-            if isValid != 'Valid':
-                raise isValid
+            bt_xml = self.llm_interface.get_behavior_tree(task_name, self.actions, self.conditions, self.example, self.object_names)
+            # isValid = validate_bt(bt_xml)
+            # if isValid != 'Valid':
+            #     raise isValid
             self.save_behavior_tree(task_name, bt_xml, task_id)
         return parse_bt_xml(bt_xml , self.actions, self.conditions), bt_xml
 
@@ -99,7 +128,6 @@ class CognitiveBehaviorTreeFramework:
     def execute_behavior_tree(self, bt_root):
         # Placeholder for behavior tree execution logic
         print("Executing Behavior Tree:", bt_root)
-
         return bt_root.execute(self.robot_interface.get_state(), interface=self.robot_interface, memory=self.memory)
 
     def simulate_feedback(self, msg):
@@ -138,11 +166,11 @@ class CognitiveBehaviorTreeFramework:
             self.bt_cache[task_id] = bt_xml
 
     def refine_and_update_bt(self, task_name, task_id, bt_xml, feedback):
-        refined_bt_xml = self.llm_interface.refine_behavior_tree(task_name, self.actions, self.conditions, bt_xml, feedback, self.known_objects, self.example)
+        refined_bt_xml = self.llm_interface.refine_behavior_tree(task_name, self.actions, self.conditions, bt_xml, feedback, self.object_names, self.example)
         if refined_bt_xml:
-            isValid = validate_bt(refined_bt_xml)
-            if isValid != 'Valid':
-                raise Exception(f"Behavior tree is not valid: {isValid}")
+            # isValid = validate_bt(refined_bt_xml)
+            # if isValid != 'Valid':
+            #     raise Exception(f"Behavior tree is not valid: {isValid}")
             self.update_bt(task_name, task_id, refined_bt_xml)
             return parse_bt_xml(refined_bt_xml, self.actions, self.conditions)
             print("Behavior Tree refined and updated.")
@@ -179,6 +207,7 @@ class CognitiveBehaviorTreeFramework:
                 success, msg, subtree_xml = self.execute_behavior_tree(new_root)
             except Exception as e:
                 print(f"Failed to execute behavior tree due to {e}.")
+                print(type(e))
                 success = False
                 msg = str(e)
         print('Success!')
@@ -188,4 +217,5 @@ if __name__ == "__main__":
     # goal, _ = get_make_coffee(sim)
     cbtf = CognitiveBehaviorTreeFramework(sim)
     cbtf.set_goal('water_cup')
-    print(cbtf.manage_task("fill a cup with water from the faucet"))
+    print(cbtf.manage_task("fill a cup with water from the sink"))
+    # print(cbtf.llm_interface.get_task_id(" ".join(cbtf.get_keywords("bring me a cup of water"))))

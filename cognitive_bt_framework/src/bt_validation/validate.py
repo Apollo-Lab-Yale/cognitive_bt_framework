@@ -7,5 +7,5 @@ def validate_bt(xml) :
       #print("Valid")
       return("Valid")
   except xmlschema.validators.exceptions.XMLSchemaValidationError as e:
-      #print(e)
+      print(e)
       return(e)
