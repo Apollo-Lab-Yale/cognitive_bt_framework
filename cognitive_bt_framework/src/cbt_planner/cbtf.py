@@ -11,8 +11,7 @@ from sentence_transformers import SentenceTransformer, util
 
 from cognitive_bt_framework.src.llm_interface.llm_interface_openai import LLMInterface
 from cognitive_bt_framework.src.htn_planner.htn_planner import HTNPlanner
-from cognitive_bt_framework.utils.db_utils import setup_database, add_behavior_tree, store_feedback,\
-    start_new_episode, store_object_state, retrieve_object_states_by_object_id, retrieve_object_states_by_episode
+from cognitive_bt_framework.utils.db_utils import setup_database, add_behavior_tree
 from cognitive_bt_framework.utils.bt_utils import parse_node, parse_bt_xml, BASE_EXAMPLE, FORMAT_EXAMPLE
 from cognitive_bt_framework.utils.goal_gen_aithor import get_wash_mug_in_sink_goal, get_make_coffee, get_put_apple_in_fridge_goal
 from cognitive_bt_framework.src.sim.ai2_thor.utils import AI2THOR_ACTIONS, AI2THOR_PREDICATES
@@ -28,7 +27,7 @@ def preprocess_text(text):
     filtered_words = [word for word in words if word.lower() not in stop_words]
     return ' '.join(filtered_words)
 
-DEFAULT_DB_PATH = '/home/liam/dev/cognitive_bt_framework/cognitive_bt_framework/src/cbt_planner'
+DEFAULT_DB_PATH = '/home/liam/dev/cognitive_bt_framework/cognitive_bt_framework/src/'
 
 class CognitiveBehaviorTreeFramework:
     def __init__(self, robot_interface, actions=AI2THOR_ACTIONS, conditions=AI2THOR_PREDICATES, db_path=DEFAULT_DB_PATH, model_name="gpt-3.5-turbo", sim=True):
@@ -37,8 +36,8 @@ class CognitiveBehaviorTreeFramework:
         self.llm_interface = LLMInterface(model_name)
         self.htn_planner = HTNPlanner(self.llm_interface)
         self.bt_cache = LRUCache(maxsize=100)
-        self.memory = Memory(db_path + f'behavior_tree_{robot_interface.scene["rooms"][0]["name"]}.db')
-        self.db_path += f'behavior_tree_{robot_interface.scene["rooms"][0]["name"]}.db'
+        self.memory = Memory(db_path + f'behavior_tree.db')
+        self.db_path += f'behavior_tree.db'
         self.actions = actions
         setup_database(self.db_path)
         self.tokenizer = RobertaTokenizer.from_pretrained('roberta-base')
