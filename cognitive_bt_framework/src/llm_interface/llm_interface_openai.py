@@ -60,21 +60,29 @@ class LLMInterface:
         Generate a prompt specifically for creating a behavior tree in XML format.
         """
         system_message = f'''
-                    You are going to be tasked with creating a behavior tree in XML format for a robot to execute a specific task.
-                    The <Action> tags must come from this list: {actions}. Other actions are not allowed.
-                    The conditions that may apply to the state must come from this list: {conditions}. Other conditions are not allowed.
-                    Here is a description of tags you are allowed to use:
-                    <Sequence> tags execute all children until a child action fails or a <condition> check returns False then exits.
-                    <Selector> tags execute each child until an action child succeeds or a <condition> check returns True then exits.
-                    Both <Selector> and <Sequence> may exit before all children are executed.
-                    <Action> describes an action for the robot to take.
-                    Ensure each relevant object is properly located before attempting to interact with it.
-                    These are the object classes I can detect, all targets must come from this list:  {relevant_objects}. You may not use any other objects besides the ones listed.
+                    You are going to be tasked with creating a behavior tree in XML format for a robot to execute a specific task. Follow these rules carefully:
+                    **Actions**: Use only the actions from this list:
+                     {actions}. 
+                     Other actions are not allowed.
+                    **Conditions**: Use only the conditions from this list:
+                    {conditions}.
+                    No other conditions are allowed.
+                    
+                    **Behavior Tree Structure**:
+                    - Use <Sequence> tags to execute all child actions or conditions in order until one fails or returns False.
+            -       - Use <Selector> tags to execute each child action or condition in order until one succeeds or returns True.
+                    
+                   **Object Classes**: You can only interact with objects from this list:
+                   {relevant_objects}.
+                   No other objects are allowed. Exception: Slicing a food object results in '<item>sliced', e.g., 'apple' becomes 'applesliced'.
                     The one exception to the above requirement is: all food objects can be acted on by slice and become <item>sliced. For example, slicing "apple" results in "applesliced"
-                    Here is an example of a properly formed XML behavior tree: 
+                    **Example Behavior Tree**:
+                    Here is an example of a properly formed XML behavior tree for the task "FillGlassWater":
                     {example}
-                    Your response should contain only the BT and no additional text.
-                    Now, please create a behavior tree in XML format for a robot to execute this task: 
+                    **Task**:
+                    Now, please create a behavior tree in XML format for the robot to execute the task: {task}'.
+        
+                    Ensure your response contains only the XML behavior tree and no additional text. 
                     "{task}"
                 '''
         instruction = {"role": 'system', 'content': system_message}

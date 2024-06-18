@@ -38,7 +38,7 @@ class CognitiveBehaviorTreeFramework:
         self.htn_planner = HTNPlanner(self.llm_interface)
         self.bt_cache = LRUCache(maxsize=100)
         self.memory = Memory(db_path + f'behavior_tree_{robot_interface.scene["rooms"][0]["name"]}.db')
-        self.db_path +=  f'behavior_tree_{robot_interface.scene["rooms"][0]["name"]}.db'
+        self.db_path += f'behavior_tree_{robot_interface.scene["rooms"][0]["name"]}.db'
         self.actions = actions
         setup_database(self.db_path)
         self.tokenizer = RobertaTokenizer.from_pretrained('roberta-base')
@@ -218,5 +218,5 @@ if __name__ == "__main__":
     # goal, _ = get_make_coffee(sim)
     cbtf = CognitiveBehaviorTreeFramework(sim)
     cbtf.set_goal('water_cup')
-    # print(cbtf.manage_task("fill a cup with water from the sink"))
-    print(cbtf.llm_interface.get_task_id(" ".join(cbtf.get_keywords("bring me a cup of water"))))
+    print(cbtf.manage_task("fill a cup with water from the sink"))
+    # print(cbtf.llm_interface.get_task_id(" ".join(cbtf.get_keywords("bring me a cup of water"))))
