@@ -90,18 +90,18 @@ class Memory:
 
         return None, None
 
-    def store_multiple_object_states(self, object_states, episode_id):
+    def store_multiple_object_states(self, object_states, episode_id, env_id):
         # Convert state dictionaries to JSON strings within the tuple list
         object_states_data = []
         timestamp = datetime.datetime.now().isoformat()
         for obj_id, state in object_states:
             state_json = json.dumps(state)
             self.object_cache[obj_id] = (state_json, timestamp)
-            object_states_data.append((obj_id, state_json, episode_id, timestamp))
+            object_states_data.append((obj_id, state_json, episode_id, timestamp, env_id))
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.executemany(
-            "INSERT INTO ObjectStates (ObjectID, State, EpisodeID, Timestamp) VALUES (?, ?, ?, ?)",
+            "INSERT INTO ObjectStates (ObjectID, State, EpisodeID, Timestamp, EnvID) VALUES (?, ?, ?, ?, ?)",
             object_states_data
         )
         conn.commit()

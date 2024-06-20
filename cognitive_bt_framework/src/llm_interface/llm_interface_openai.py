@@ -34,12 +34,17 @@ class LLMInterface:
         :param task: The task description.
         :return: A string prompt for the GPT model.
         """
-        instruction = {"role": 'system', 'content': 'You are assisting in decomposing high level goal for a robot. '
-                                                    'each subgoal should be its own line with NO ADDITIONAL CHARACTERS, '
-                                                    'in the format should be short camel case similar to a '
-                                                    'c++ class name with no spaces. Please provide the most complete'
-                                                    'decomposition possible, include a name for the high level task'
-                                                    'in the same format as the subtasks as the first line of your response.'}
+        instruction = {"role": 'system', 'content': 'You are assisting in decomposing a high-level goal for a robot. '
+                                                    'Each subgoal should be its own line with NO ADDITIONAL CHARACTERS. '
+                                                    'The format should be short camelCase similar to a C++ class name '
+                                                    'with no spaces. Please provide the most complete decomposition '
+                                                    'possible, including decomposition of all subtasks until each task '
+                                                    'is its own step moving closer to the high-level goal. Include a '
+                                                    'name for the high-level task in the same format as the subtasks as '
+                                                    'the first line of your response. If the task is sufficiently small,'
+                                                    ' then you do not need to generate subtasks. Sufficiently reduced '
+                                                    'subtasks include tasks like emptyTrash, clearCounters, '
+                                                    'emptyDishwasher, etc.'}
         message = {"role": "user", "content": f"Decompose the following task into detailed subtask steps: {task}"}
         return [instruction, message]
 
@@ -98,17 +103,19 @@ class LLMInterface:
         """
         error_info = f"Error Category: {error_category}" if error_category else ""
         system_message = f'''
-            This is the task that was attempted: "{task}"
+            Task attempted: "{task}"
 
             The behavior tree provided for this task resulted in an error. 
-            This is the sub-tree where the error occurred: {original_bt_xml}
-            This is the associated feedback and error info describing the error: {feedback}. {error_info}
-            Please modify the behavior tree to account for this failure, with the following requirements:
-            1. This is the list of valid actions for an <Action> tag: {actions}. Other actions are not allowed.
-            2. The <condition>s that may apply to the actions come from this list: {conditions}. Other conditions are not allowed.
-            3. These are the object classes I can detect, all targets must come from this list:  {known_objects}. You may not use any other objects besides the ones listed.
-            The one exception to requirement 3 is: all food objects can be acted on by the slice action and become <item>sliced. For example, "apple" becomes "applesliced".
-            Your response should contain only the BT and no additional text.
+            Sub-tree where the error occurred: {original_bt_xml}
+            Associated feedback and error information: {feedback}. {error_info}
+
+            Please modify the behavior tree to address this failure, adhering to the following requirements:
+            1. Valid actions for an <Action> tag: {actions}. No other actions are allowed.
+            2. Applicable <condition>s for the actions: {conditions}. No other conditions are allowed.
+            3. Detectable object classes: {known_objects}. Only these objects may be used.
+               Exception: All food objects can be acted on by the slice action, becoming <item>sliced. For example, "apple" becomes "applesliced".
+            4. The only valid tags are <Action>, <Condition>, <Sequence>, <Selector>, <root>, <?xml version="1.0"?>.
+            Your response should contain only the corrected behavior tree in XML format and no additional text.
         '''
         prompt = [
             {"role": "system", "content": system_message},
@@ -116,7 +123,6 @@ class LLMInterface:
         ]
         print(prompt)
         return prompt
-
 
     @sleep_and_retry
     @limits(calls=10, period=60)  # Example: Max 10 calls per minute
@@ -127,6 +133,7 @@ class LLMInterface:
         :return: The model's response as a task decomposition.
         """
         try:
+            print(f"Querying {self.model_name}: {prompt}")
             response = self.client.chat.completions.create(
                 model=self.model_name,
                 messages=prompt,

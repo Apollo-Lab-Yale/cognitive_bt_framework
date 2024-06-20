@@ -6,6 +6,29 @@ def setup_database(db_path):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
+    # Create Feedback table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS Feedback (
+            FeedbackID INTEGER PRIMARY KEY,
+            DecompositionID INTEGER NOT NULL,
+            UserID TEXT,
+            FeedbackText TEXT,
+            FeedbackDate TEXT,
+            FOREIGN KEY (DecompositionID) REFERENCES Decompositions (DecompositionID)
+        )''')
+
+    # Create DecompositionAdjustments table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS DecompositionAdjustments (
+            AdjustmentID INTEGER PRIMARY KEY,
+            DecompositionID INTEGER NOT NULL,
+            PreviousDecompositionText TEXT,
+            NewDecompositionText TEXT,
+            AdjustmentReason TEXT,
+            AdjustmentDate TEXT,
+            FOREIGN KEY (DecompositionID) REFERENCES Decompositions (DecompositionID)
+        )''')
+
     cursor.execute('''
                CREATE TABLE IF NOT EXISTS Episodes (
                    EpisodeID TEXT PRIMARY KEY,
@@ -23,12 +46,14 @@ def setup_database(db_path):
                    FOREIGN KEY (EpisodeID) REFERENCES Episodes(EpisodeID)
                );
            ''')
+
     # Create Tasks table
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS Tasks (
         TaskID STRING PRIMARY KEY,
         TaskName TEXT NOT NULL,
-        InitialDescription TEXT
+        InitialDescription TEXT,
+        SubTasks TEXT NOT NULL
     )''')
 
     # Create BehaviorTrees table to replace Decompositions
@@ -82,7 +107,6 @@ def add_behavior_tree(conn, task_id, task_name, initial_description, bt_xml, cre
 
 def store_feedback(conn, behavior_tree_id, user_id, feedback_text):
     cursor = conn.cursor()
-
     cursor.execute("INSERT INTO Feedback (BehaviorTreeID, UserID, FeedbackText, FeedbackDate) VALUES (?, ?, ?, datetime('now'))", (behavior_tree_id, user_id, feedback_text))
     conn.commit()
 
