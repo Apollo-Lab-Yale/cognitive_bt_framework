@@ -10,7 +10,8 @@ from keybert import KeyBERT
 from sentence_transformers import SentenceTransformer, util
 
 from cognitive_bt_framework.src.llm_interface.llm_interface_openai import LLMInterface
-from cognitive_bt_framework.utils.db_utils import setup_database, add_behavior_tree
+from cognitive_bt_framework.utils.db_utils import setup_database, add_behavior_tree, insert_subtasks,  \
+    create_subtask_table, get_subtasks_and_embeddings
 from cognitive_bt_framework.utils.bt_utils import parse_node, parse_bt_xml, BASE_EXAMPLE, FORMAT_EXAMPLE
 from cognitive_bt_framework.utils.goal_gen_aithor import get_wash_mug_in_sink_goal, get_make_coffee, get_put_apple_in_fridge_goal
 from cognitive_bt_framework.src.sim.ai2_thor.utils import AI2THOR_ACTIONS, AI2THOR_PREDICATES
@@ -19,7 +20,8 @@ from cognitive_bt_framework.src.cbt_planner.memory import Memory
 from cognitive_bt_framework.src.bt_validation.validate import validate_bt
 from cognitive_bt_framework.utils.logic_utils import cosine_similarity, stop_words
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
+# from sklearn.metrics.pairwise import cosine_similarity
+
 
 def preprocess_text(text):
     words = text.split()
@@ -48,6 +50,7 @@ class CognitiveBehaviorTreeFramework:
         self.conditions = conditions
         self.known_objects = []
         self.goal = None
+        self.max_actions = 20
 
     def get_embedding(self, text):
         # pp_text = preprocess_text(text)
@@ -63,7 +66,6 @@ class CognitiveBehaviorTreeFramework:
     def get_keyword_similarity(self, keywords1, keywords2):
         embeddings1 = self.keyword_embedder.encode(keywords1, convert_to_tensor=True)
         embeddings2 = self.keyword_embedder.encode(keywords2, convert_to_tensor=True)
-
         # Compute cosine similarity between embeddings
         cosine_similarities = util.pytorch_cos_sim(embeddings1, embeddings2)
         return cosine_similarities
@@ -71,21 +73,29 @@ class CognitiveBehaviorTreeFramework:
     def find_most_similar_task_decomp(self, embedding, task_name):
         with self.connect_db() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT TaskID, TaskName, SubTasks FROM Tasks")
+            cursor.execute("SELECT TaskID, TaskName, IsSubtask FROM Tasks")
             best_match = None
             highest_similarity = 0.85
             for row in cursor.fetchall():
-                try:
+                # try:
                     existing_task_name = row[1]
-                    existing_embedding = bytes(row[0])
-                    similarity = cosine_similarity(embedding, existing_embedding)[0][0]
+                    existing_embedding = row[0]
+                    print(type(existing_embedding))
+                    a_float32 = np.frombuffer(embedding, dtype=np.float32).tobytes()
+                    b_float32 = np.frombuffer(existing_embedding, dtype=np.float32).tobytes()
+                    similarity = cosine_similarity(a_float32, b_float32)
                     print(existing_task_name, similarity)
                     if task_name == existing_task_name or similarity > highest_similarity:
-                        best_match = row[2]
+                        if row[2]:
+                            best_match = (existing_task_name, existing_embedding)
+                        else:
+                            with self.connect_db() as conn:
+                                subtask_meta = get_subtasks_and_embeddings(conn, existing_task_name)
+                                best_match = (subtask_meta[0], subtask_meta[1])
                         highest_similarity = similarity
-                except Exception as e:
-                    print(e)
-                    pass
+                # except Exception as e:
+                #     print(e)
+                #     pass
             return best_match
 
     def find_most_similar_task(self, embedding, task_name):
@@ -97,7 +107,8 @@ class CognitiveBehaviorTreeFramework:
             for row in cursor.fetchall():
                 try:
                     existing_task_name = row[1]
-                    existing_embedding = np.frombuffer(row[0], dtype=np.float32)
+                    existing_embedding = np.frombuffer(row[0], dtype=np.float32).tobytes()
+                    embedding = np.frombuffer(embedding, dtype=np.float32).tobytes()
                     similarity = cosine_similarity(embedding, existing_embedding)
                     if task_name == existing_task_name or similarity > highest_similarity:
                         best_match = row[2]
@@ -142,6 +153,10 @@ class CognitiveBehaviorTreeFramework:
     def execute_behavior_tree(self, bt_root):
         # Placeholder for behavior tree execution logic
         print("Executing Behavior Tree:", bt_root)
+        ret = None
+        for i in range(self.max_actions):
+            print(f"Actions executed: {i}")
+            ret = bt_root.execute(self.robot_interface.get_state(), interface=self.robot_interface, memory=self.memory)
         return bt_root.execute(self.robot_interface.get_state(), interface=self.robot_interface, memory=self.memory)
 
     def simulate_feedback(self, msg):
@@ -193,16 +208,16 @@ class CognitiveBehaviorTreeFramework:
         decomp = self.llm_interface.get_task_decomposition(task_name).split('\n')
         print(decomp)
         task_name, decomp = decomp[0], decomp[1:]
-        decomp_embeddings = [(subtask, self.get_embedding(subtask)) for subtask in decomp]
+        decomp_embeddings = [self.get_embedding(subtask) for subtask in decomp]
         with self.connect_db() as conn:
+            create_subtask_table(conn, task_name)
+            insert_subtasks(conn, task_name, decomp, decomp_embeddings)
             cursor = conn.cursor()
-            decomp_txt = "\n".join(f"{sub[0]}--{sub[1]}" for sub in decomp_embeddings)
-            cursor.execute("INSERT INTO Tasks (TaskName, TaskID, SubTasks) VALUES (?, ?, ?)", (task_name, task_embedding, decomp_txt))
-            for sub_task in decomp_embeddings:
-                print(sub_task[0], sub_task[1])
-                cursor.execute("INSERT INTO Tasks (TaskName, TaskID, SubTasks) VALUES (?, ?, ?)",
-                               (sub_task[0], sub_task[1], f"{sub_task[0]}--{sub_task[1]}"))
-        return decomp_embeddings
+            cursor.execute("INSERT INTO Tasks (TaskName, TaskID, IsSubtask) VALUES (?, ?, FALSE)", (task_name, task_embedding))
+            for i in range(len(decomp)):
+                cursor.execute("INSERT INTO Tasks (TaskName, TaskID, IsSubtask) VALUES (?, ?, TRUE)",
+                               (decomp[i], decomp_embeddings[i]))
+        return decomp, decomp_embeddings
 
     def manage_task(self, task_name):
         episode_id = self.memory.start_new_episode(task_name)
@@ -211,27 +226,39 @@ class CognitiveBehaviorTreeFramework:
         # Load or generate a behavior tree for the task
         task_embedding = self.get_embedding(task_name)
         task_incomplete = True
-        sub_tasks = self.find_most_similar_task_decomp(task_embedding, task_name)
+        ret = self.find_most_similar_task_decomp(task_embedding, task_name)
         self.update_known_objects()
-        if sub_tasks is None:
-            sub_tasks = self.generate_decomposition(task_name, task_embedding)
+        if ret is None:
+            sub_tasks, sub_task_ids = self.generate_decomposition(task_name, task_embedding)
         else:
-            sub_tasks = [task.split('--') for task in sub_tasks.split('\n')]
-        for sub_task in sub_tasks:
-            print("***********")
-            print(sub_task)
-            print(len(sub_task))
-            (sub_task_name, sub_task_id) = sub_task
-            try:
-                bt_root, bt_xml = self.load_or_generate_bt(sub_task_id, sub_task_name)
-                success, msg, subtree_xml = self.execute_behavior_tree(bt_root)
-            except Exception as e:
-                print(f"Failed to execute or parse behavior tree due to {e}.")
-                subtree_xml = "NO SUBTREE DUE TO FAILURE"
-                success = False
-                msg = str(e)
-            while not self.robot_interface.check_goal(self.goal):
-                self.update_known_objects()
+            sub_tasks, sub_task_ids = ret[0], ret[1]
+        while not self.robot_interface.check_goal(self.goal):
+            self.update_known_objects()
+            for i in range(len(sub_tasks)):
+                if self.robot_interface.check_goal(self.goal):
+                    print('Succcess!')
+                    return True
+
+                sub_task_name = sub_tasks[i]
+                sub_task_id = sub_task_ids[i]
+                print("***********")
+                try:
+                    bt_root, bt_xml = self.load_or_generate_bt(sub_task_id, sub_task_name)
+                    success, msg, subtree_xml = self.execute_behavior_tree(bt_root)
+                except Exception as e:
+                    print(f"Failed to execute or parse behavior tree due to {e}.")
+                    subtree_xml = "NO SUBTREE DUE TO FAILURE"
+                    success = False
+                    msg = str(e)
+                    # Refine the behavior tree based on feedback
+                    try:
+                        new_root = self.refine_and_update_bt(sub_task_name, sub_task_id, subtree_xml, msg)
+                        success, msg, subtree_xml = self.execute_behavior_tree(new_root)
+                    except Exception as e:
+                        print(f"Failed to execute behavior tree due to {e}.")
+                        print(type(e))
+                        success = False
+                        msg = str(e)
                 # Get feedback based on execution, simulated here as a function
                 if success and task_incomplete:
                     msg = f"Execution of behavior tree ended in success but task {task_name} is NOT COMPLETED."

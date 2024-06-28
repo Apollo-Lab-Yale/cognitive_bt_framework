@@ -50,17 +50,19 @@ def setup_database(db_path):
     # Create Tasks table
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS Tasks (
-        TaskID STRING PRIMARY KEY,
+        TaskID BLOB PRIMARY KEY,
         TaskName TEXT NOT NULL,
         InitialDescription TEXT,
-        SubTasks TEXT NOT NULL
-    )''')
+        IsSubtask BOOLEAN NOT NULL
+    );
+    ''')
 
     # Create BehaviorTrees table to replace Decompositions
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS BehaviorTrees (
         BehaviorTreeID INTEGER PRIMARY KEY,
-        TaskID STRING NOT NULL UNIQUE,
+        TaskID BLOB NOT NULL UNIQUE,
+        TaskName TEXT NOT NULL,
         BehaviorTreeXML TEXT,
         CreationDate TEXT,
         CreatedBy TEXT,
@@ -102,7 +104,7 @@ def add_behavior_tree(conn, task_id, task_name, initial_description, bt_xml, cre
     # task_id = cursor.lastrowid
 
     # Insert the initial behavior tree
-    cursor.execute("REPLACE INTO BehaviorTrees (TaskID, BehaviorTreeXML, CreationDate, CreatedBy) VALUES (?, ?, datetime('now'), ?)", (task_id, bt_xml, created_by))
+    cursor.execute("REPLACE INTO BehaviorTrees (TaskID, BehaviorTreeXML, CreationDate, CreatedBy, TaskName) VALUES (?, ?, datetime('now'), ?, ?)", (task_id, bt_xml, created_by, task_name))
     conn.commit()
 
 def store_feedback(conn, behavior_tree_id, user_id, feedback_text):
@@ -206,10 +208,55 @@ def store_multiple_object_states(db_path, object_states, episode_id, env_id):
         "INSERT INTO ObjectStates (ObjectID, State, EpisodeID, Timestamp, EnvID) VALUES (?, ?, ?, ?, ?)",
         object_states_json
     )
-
     # Commit the transaction and close the connection
     conn.commit()
     conn.close()
+
+def create_subtask_table(conn, task_id):
+    """
+    Create a new subtask table for a specific task.
+    """
+    table_name = f"subtasks_{task_id}"
+    create_table_query = f"""
+    CREATE TABLE IF NOT EXISTS {table_name} (
+        id INTEGER PRIMARY KEY,
+        subtask TEXT NOT NULL,
+        embedding TEXT NOT NULL
+    );
+    """
+    cursor = conn.cursor()
+    cursor.execute(create_table_query)
+    conn.commit()
+    return table_name
+
+def insert_subtasks(conn, task_id, subtasks, embeddings):
+    """
+    Insert subtasks and their embeddings into the subtask table.
+    """
+    table_name = create_subtask_table(conn, task_id)
+    insert_query = f"INSERT INTO {table_name} (subtask, embedding) VALUES (?, ?)"
+    cursor = conn.cursor()
+    for subtask, embedding in zip(subtasks, embeddings):
+        cursor.execute(insert_query, (subtask, str(embedding)))  # Ensure embedding is converted to string if necessary
+    conn.commit()
+
+
+def get_subtasks_and_embeddings(conn, task_id):
+    """
+    Retrieve subtasks and their embeddings for a specific task.
+    """
+    table_name = f"subtasks_{task_id}"
+    select_query = f"SELECT subtask, embedding FROM {table_name}"
+
+    cursor = conn.cursor()
+    cursor.execute(select_query)
+    results = cursor.fetchall()
+
+    subtasks = [row[0] for row in results]
+    embeddings = [eval(row[1]) for row in
+                  results]  # Assuming embeddings are stored as strings and need to be evaluated back to their original format
+
+    return subtasks, embeddings
 
 # if __name__ == "__main__":
 #     setup_database('behavior_tree.db')

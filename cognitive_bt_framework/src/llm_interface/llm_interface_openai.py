@@ -1,6 +1,7 @@
 import openai
 from openai import OpenAI
 from cognitive_bt_framework.utils import setup_openai, get_openai_key
+from cognitive_bt_framework.utils.bt_utils import DOMAIN_DEF
 from ratelimit import limits, sleep_and_retry
 
 
@@ -69,10 +70,14 @@ class LLMInterface:
                     **Actions**: Use only the actions from this list:
                      {actions}. 
                      Other actions are not allowed.
+                     each action tag should contain name and target members where name is the action being performed and target is the target of the action
                     **Conditions**: Use only the conditions from this list:
                     {conditions}.
                     No other conditions are allowed.
-                    
+                    each condition tag should contain name and target members. where name is the condition being checked and target is the target of the condition
+                    **Domain**
+                    the domain is defined in pddl as follows:
+                    {DOMAIN_DEF}
                     **Behavior Tree Structure**:
                     - Use <Sequence> tags to execute all child actions or conditions in order until one fails or returns False.
             -       - Use <Selector> tags to execute each child action or condition in order until one succeeds or returns True.
@@ -108,10 +113,14 @@ class LLMInterface:
             The behavior tree provided for this task resulted in an error. 
             Sub-tree where the error occurred: {original_bt_xml}
             Associated feedback and error information: {feedback}. {error_info}
-
+            **Domain**
+            the domain is defined in pddl as follows:
+            {DOMAIN_DEF}
             Please modify the behavior tree to address this failure, adhering to the following requirements:
-            1. Valid actions for an <Action> tag: {actions}. No other actions are allowed.
-            2. Applicable <condition>s for the actions: {conditions}. No other conditions are allowed.
+            1. Valid actions for an <Action> tag: {actions}. No other actions are allowed, and each action should contain name and target members.
+            where name is the action being performed and target is the target of the action.
+            2. Applicable <condition>s for the actions: {conditions}. No other conditions are allowed, and each condition should contain name and target members.
+            where name is the condition being checked and target is the target of the condition.
             3. Detectable object classes: {known_objects}. Only these objects may be used.
                Exception: All food objects can be acted on by the slice action, becoming <item>sliced. For example, "apple" becomes "applesliced".
             4. The only valid tags are <Action>, <Condition>, <Sequence>, <Selector>, <root>, <?xml version="1.0"?>.

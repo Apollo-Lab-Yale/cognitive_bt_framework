@@ -67,6 +67,7 @@ class AI2ThorSimEnv:
             "lookdown": self.look_down,
             "scanroom": self.handle_scan_room
         }
+        self.room_names = ['kitchen', 'livingroom', 'bedroom', 'bathroom']
 
     def reset(self, scene_index=-1, width=600, height=600, gridSize=0.25, visibilityDistance=10, single_room='kitchen', save_video=False):
         scene = None
@@ -188,6 +189,7 @@ class AI2ThorSimEnv:
         return [obj['objectId'].split('|')[0] for obj in objects]
 
     def navigate_to_room(self, target_room_str="bedroom"):
+        return True, ""
         target_room = None
         for room in self.scene["rooms"]:
             if room["roomType"].lower() == target_room_str.lower():
@@ -243,6 +245,8 @@ class AI2ThorSimEnv:
         return positions
 
     def navigate_to_object(self, object):
+        if type(object) == str:
+            return True, ""
         positions = self.get_valid_positions()
         print('navigate to object')
         print(type(object))
@@ -387,7 +391,7 @@ class AI2ThorSimEnv:
             if not self.controller.last_event.metadata["lastActionSuccess"]:
                 return self.controller.last_event.metadata["lastActionSuccess"], self.controller.last_event.metadata[
                     "errorMessage"]
-            if any([goal_obj in object["objectId"].lower() for object in state['objects']]):
+            if any([goal_obj.lower() in object["objectId"].lower() for object in state['objects']]) or goal_obj.lower() in self.room_names:
                 print(f"{goal_obj} found!")
                 return True, ""
         return False, (f"Failed to find object {goal_obj} during scan_room, it may not be visible from my"
@@ -431,7 +435,7 @@ class AI2ThorSimEnv:
             return True, ""
 
         if "visible" in cond.lower():
-            isVisible = object_state is not None
+            isVisible = object_state is not None or target.lower() in self.room_names
             msg = "" if isVisible else f"{target} is not currently visible. Try search actions like <action name=scanroom target={target}/>."
             return isVisible, msg
 
@@ -459,7 +463,7 @@ class AI2ThorSimEnv:
             objects_to_update = [(obj['objectId'], obj) for obj in current_state['objects']]
             memory.store_multiple_object_states(objects_to_update, episode_id, self.scene_id)
 
-            if target in current_state['room_names']:
+            if target in current_state['room_names'] or target.lower() in self.room_names:
                 ret = self.action_fn_from_str[act](target)
                 return True, ''
             if 'scanroom' in act:

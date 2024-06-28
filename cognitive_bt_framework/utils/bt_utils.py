@@ -142,7 +142,7 @@ class Node:
         raise NotImplementedError("This method should be overridden by subclasses")
 
 class Action(Node):
-    def __init__(self, name, target):
+    def __init__(self, name, target, xml_str):
         self.name = name
 
         self.target = target
@@ -159,11 +159,12 @@ class Action(Node):
         return f'<Action name="{self.name}" target="{self.target}"/>'
 
 class Condition(Node):
-    def __init__(self, name, target):
+    def __init__(self, name, target, xml_str):
         super().__init__(name)
         self.target = target
         if target is not None:
             self.target = self.target.replace('_', '')
+        self.xml_str = xml_str
 
     def execute(self, state, interface, memory):
         # Evaluate the Conditionagainst the state
@@ -173,12 +174,13 @@ class Condition(Node):
         return success, msg, self.to_xml()
 
     def to_xml(self):
-        return f'<Condition name="{self.name}" target="{self.target}"/>'
+        return self.xml_str
 
 class Selector(Node):
-    def __init__(self, name):
+    def __init__(self, name, xml_str):
         super().__init__(name)
         self.failures = []
+        self.xml_str = xml_str
 
     def execute(self, state, interface, memory):
         for child in self.children:
@@ -191,12 +193,13 @@ class Selector(Node):
 
     def to_xml(self):
         children_xml = "\n".join(child.to_xml() for child in self.children)
-        return f'<Selector name="{self.name}">{children_xml}</Selector>'
+        return self.xml_str
 
 
 class Sequence(Node):
-    def __init__(self, name):
+    def __init__(self, name, xml_str):
         super().__init__(name)
+        self.xml_str = xml_str
 
     def execute(self, state, interface, memory):
         for child in self.children:
@@ -211,7 +214,7 @@ class Sequence(Node):
 
     def to_xml(self):
         children_xml = "\n".join(child.to_xml() for child in self.children)
-        return f'<Sequence name="{self.name}">{children_xml}</Sequence>'
+        return self.xml_str
 
 
 
@@ -225,6 +228,7 @@ def parse_bt_xml(xml_content, actions, conditions):
 
 def parse_node(element, actions, conditions):
     node_type = element.tag.capitalize()
+    xml_str = ET.tostring(element)
     if node_type == "Action":
         target = element.get('target', None)
         if target is None and element.get('name') not in AI2THOR_NO_TARGET:
@@ -232,7 +236,7 @@ def parse_node(element, actions, conditions):
             raise Exception(f"ERROR: Failed to parse <{node_type.lower()} name={element.get('name')} target={target}> DUE TO MISSING TARGET")
         if element.get('name') not in actions:
             raise Exception(f"ERROR: {element.get('name')} is not a valid action.")
-        node = Action(element.get('name'), element.get('target'))
+        node = Action(element.get('name'), element.get('target'), xml_str)
         return node
     elif node_type == "Condition":
         target = element.get('target', None)
@@ -241,18 +245,182 @@ def parse_node(element, actions, conditions):
             raise Exception(f"ERROR: Failed to parse <{node_type.lower()} name={element.get('name')} target={target}> DUE TO MISSING TARGET")
         if element.get('name') not in conditions:
             raise Exception(f"ERROR: {element.get('name')} is not a valid condition.")
-        return Condition(element.get('name'), target)
+        return Condition(element.get('name'), target, xml_str)
     elif node_type in ["Selector", "Sequence"]:
         node_class = globals()[node_type]
-        node = node_class(element.get('name'))
+        node = node_class(element.get('name'), xml_str)
         for child_elem in element:
             child = parse_node(child_elem, actions, conditions)
             node.children.append(child)
         return node
     elif node_type == "Root":
-        node = Sequence('root')
+        node = Sequence('root', xml_str)
         for child_elem in element:
             child = parse_node(child_elem, actions, conditions)
             node.children.append(child)
         return node
     raise ValueError(f"Unsupported node type: {node_type}")
+
+
+DOMAIN_DEF = """
+(define (domain virtual-home)
+(:requirements :strips :typing :equality :disjunctive-preconditions :conditional-effects)
+(:types Character
+      Object
+      Room
+      Surface - Object
+      Container - Object
+)
+
+  (:predicates
+    ; States
+    (open ?obj - Object)
+    (closed ?obj - Object)
+    (active ?obj)
+    (off ?obj - Object)
+    (breakable ?obj - Object)
+    (can_open ?obj - Object)
+    (grabbable ?obj - Object)
+    (sittable ?obj - Object)
+    (lieable ?obj - Object)
+    (has_paper ?obj)
+    (filled ?obj)
+    (has_plug ?obj)
+    (lookable ?obj - Object)
+    (readable ?obj - Object)
+    (eatable ?obj - Object)
+    (clothes ?obj - Object)
+    (containers ?obj - Object)
+    (cuttable ?obj - Object)
+    (drinkable ?obj - Object)
+    (between ?obj1 - Object ?obj2 - Object)
+    (hangable ?obj - Object)
+    (surfaces ?obj - Object)
+    (cover_object ?obj - Object)
+    (cream ?obj - Object)
+    (pourable ?obj - Object)
+    (moveable ?obj - Object)
+    (toggleable ?obj - Object)
+    (recipient ?obj - Object)
+    (receptacle ?obj - Object)
+    (pickupable ?obj - Object)
+    (dirty ?obj)
+    (holds ?obj)
+    (water_source ?obj)
+    (cleaning_target ?obj)
+    (on ?obj1 - Object ?obj2 - Object)
+    (inside ?obj1 ?obj2)
+    (in ?obj1 ?obj2)
+
+    (facing ?obj1 - Object ?obj2 - Object)
+    (holds_rh ?character - Character ?obj - Object)
+    (holds_lh ?character - Character ?obj - Object)
+    (sitting ?character)
+    (close ?character ?object)
+    (standing ?character)
+    (has_switch ?object)
+    (visible ?object)
+    (hands_full ?character)
+    (can_cook ?cont)
+    (cooked ?obj ?cont)
+    (in_room ?character ?room)
+    (sliceable ?obj)
+    (sliced ?obj)
+  )
+
+  ; Actions
+    (:action walk_to_object
+        :parameters (?character - Character ?obj1 - Object)
+        :precondition (and (standing ?character) (visible ?obj1))
+        :effect (and (close ?character ?obj1)
+                    (forall (?obj - object) (when (not(close ?obj1 ?obj)) (not (visible ?obj))))
+                    (visible ?obj1))
+             )
+
+    (:action walk_to_room
+        :parameters (?character - Character ?room - Room)
+        :precondition (standing ?character)
+        :effect (and
+                    (forall (?r - Room)
+                        (when (inside ?character ?r) (not(inside ?character ?r))))
+                   (inside ?character ?room)
+                   (close ?character ?room)
+                   (forall (?obj - Object)
+                            (when (not(inside ?obj ?room)) (not (visible ?obj))))
+                 )
+                )
+
+    (:action grab
+        :parameters (?character - Character ?object - Object)
+        :precondition (and (grabbable ?object) (close ?character ?object) (visible ?object) (not (hands_full ?character)))
+        :effect (and (holds_rh ?character ?object)
+                      (hands_full ?character)
+                      (forall (?cont - Object)(when (inside ?object ?cont) (not (inside ?object ?cont))))
+                )
+        )
+
+    (:action switchon
+        :parameters (?character - Character ?object - Object)
+        :precondition (and (has_switch ?object) (off ?object) (close ?character ?object) (visible ?object) (not (hands_full ?character)))
+        :effect (active ?object))
+
+    (:action switchoff
+        :parameters (?character - Character ?object - Object)
+        :precondition (and (has_switch ?object) (active ?object) (close ?character ?object) (visible ?object) (not (hands_full ?character)))
+        :effect (off ?object))
+
+    (:action put
+        :parameters (?character - Character ?object - Object ?target - Object)
+        :precondition (and (holds_rh ?character ?object) (close ?character ?target))
+        :effect (and (not (holds_rh ?character ?object)) (on ?object ?target) (not (hands_full ?character))) )
+
+    (:action putin
+        :parameters (?character - Character
+                      ?object - Object
+                      ?container - Object)
+        :precondition (and (holds_rh ?character ?object) (close ?character ?container) (open ?container))
+        :effect (and (not (holds_rh ?character ?object)) (inside ?object ?container) (not (hands_full ?character))))
+
+    (:action scanroom
+        :parameters (?character - Character ?obj - Object ?room - Room)
+        :precondition (and (inside ?character ?room))
+        :effect (and
+
+            (when (inside ?obj ?room) (visible ?obj))
+        )
+    )
+
+
+    (:action open
+        :parameters (?character - Character
+                     ?container)
+        :precondition (and (close ?character ?container)
+                        (closed ?container)
+                        (visible ?container)
+                        (not(active ?container))
+                       )
+        :effect (and (open ?container)
+                    (forall (?obj - Object)
+                        (when (inside ?obj ?container)
+                            (visible ?obj)
+                        )
+                    )
+                    (not (closed ?container))
+                )
+     )
+
+    (:action close
+        :parameters (?character - Character
+                     ?container)
+        :precondition (and (close ?character ?container) (open ?container) (visible ?container))
+        :effect (and (closed ?container)
+                    (not (open ?container))
+                    (forall (?obj - Object)
+                                (when (inside ?obj ?container)
+                                    (not(visible ?obj))
+                                )
+                    )
+         )
+    )
+
+"""
