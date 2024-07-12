@@ -53,7 +53,8 @@ def setup_database(db_path):
         TaskID BLOB PRIMARY KEY,
         TaskName TEXT NOT NULL,
         InitialDescription TEXT,
-        IsSubtask BOOLEAN NOT NULL
+        IsSubtask BOOLEAN NOT NULL,
+        CompleteCondition TEXT NOT NULL
     );
     ''')
 
@@ -221,7 +222,8 @@ def create_subtask_table(conn, task_id):
     CREATE TABLE IF NOT EXISTS {table_name} (
         id INTEGER PRIMARY KEY,
         subtask TEXT NOT NULL,
-        embedding TEXT NOT NULL
+        embedding TEXT NOT NULL,
+        condition TEXT NOT NULL
     );
     """
     cursor = conn.cursor()
@@ -229,15 +231,15 @@ def create_subtask_table(conn, task_id):
     conn.commit()
     return table_name
 
-def insert_subtasks(conn, task_id, subtasks, embeddings):
+def insert_subtasks(conn, task_id, subtasks, embeddings, conditions):
     """
     Insert subtasks and their embeddings into the subtask table.
     """
     table_name = create_subtask_table(conn, task_id)
-    insert_query = f"INSERT INTO {table_name} (subtask, embedding) VALUES (?, ?)"
+    insert_query = f"INSERT OR REPLACE INTO {table_name} (subtask, embedding, condition) VALUES (?, ?, ?)"
     cursor = conn.cursor()
-    for subtask, embedding in zip(subtasks, embeddings):
-        cursor.execute(insert_query, (subtask, str(embedding)))  # Ensure embedding is converted to string if necessary
+    for subtask, embedding, condition in zip(subtasks, embeddings, conditions):
+        cursor.execute(insert_query, (subtask, embedding, condition))  # Ensure embedding is converted to string if necessary
     conn.commit()
 
 
@@ -246,17 +248,17 @@ def get_subtasks_and_embeddings(conn, task_id):
     Retrieve subtasks and their embeddings for a specific task.
     """
     table_name = f"subtasks_{task_id}"
-    select_query = f"SELECT subtask, embedding FROM {table_name}"
+    select_query = f"SELECT subtask, embedding, condition FROM {table_name}"
 
     cursor = conn.cursor()
     cursor.execute(select_query)
     results = cursor.fetchall()
 
     subtasks = [row[0] for row in results]
-    embeddings = [eval(row[1]) for row in
+    embeddings = [row[1] for row in
                   results]  # Assuming embeddings are stored as strings and need to be evaluated back to their original format
-
-    return subtasks, embeddings
+    conditions = [row[2] for row in results]
+    return subtasks, embeddings, conditions
 
 # if __name__ == "__main__":
 #     setup_database('behavior_tree.db')

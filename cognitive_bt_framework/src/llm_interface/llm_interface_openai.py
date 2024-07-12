@@ -1,9 +1,9 @@
 import openai
 from openai import OpenAI
-from cognitive_bt_framework.utils import setup_openai, get_openai_key
+from cognitive_bt_framework.utils import setup_openai, get_openai_key, parse_llm_response
 from cognitive_bt_framework.utils.bt_utils import DOMAIN_DEF
 from ratelimit import limits, sleep_and_retry
-
+from cognitive_bt_framework.src.sim.ai2_thor.utils import AI2THOR_PREDICATES_ANNOTATED
 
 class LLMInterface:
     def __init__(self, model_name="gpt-4o"):
@@ -29,7 +29,7 @@ class LLMInterface:
             tokens -= len(self.conversation_history[0]['content'])
             self.conversation_history.pop(0)
 
-    def generate_prompt_htn(self, task):
+    def generate_prompt_htn(self, task, known_objects):
         """
         Generate a prompt for the task decomposition.
         :param task: The task description.
@@ -37,34 +37,52 @@ class LLMInterface:
         """
         instruction = {"role": 'system', 'content': 'You are assisting in decomposing a high-level goal for a robot. '
                                                     'Each subgoal should be its own line with NO ADDITIONAL CHARACTERS. '
-                                                    'The format should be short camelCase similar to a C++ class name '
+                                                    'The format should be short and underscore separated similar to a pythonic class name '
                                                     'with no spaces. Please provide the most complete decomposition '
                                                     'possible, including decomposition of all subtasks until each task '
-                                                    'is its own step moving closer to the high-level goal. Include a '
+                                                    'is its own atomic step moving closer to the high-level goal. Include a '
                                                     'name for the high-level task in the same format as the subtasks as '
                                                     'the first line of your response. If the task is sufficiently small,'
                                                     ' then you do not need to generate subtasks. Sufficiently reduced '
-                                                    'subtasks include tasks like emptyTrash, clearCounters, '
-                                                    'emptyDishwasher, etc.'}
+                                                    'subtasks include tasks like empty_trash, clear_counters, '
+                                                    'empty_dishwasher, etc.'
+                                                    'Additionally, for each subtask, provide a SINGLE object state condition '
+                                                    'that defines when the subtask is considered complete. Format these conditions '
+                                                    'as a bulleted list directly under the subtask, each condition on a new line '
+                                                    'with a dash "-" at the beginning. All Conditions should come from'
+                                                    f'the following list without exception: {AI2THOR_PREDICATES_ANNOTATED} followed'
+                                                    f'by a space and the object that the condition applies to and a 1 '
+                                                    f'or 0 indicating if the predicate should be true of false.'
+                                                    f' All objects should come from this list without exception: {known_objects}'}
         message = {"role": "user", "content": f"Decompose the following task into detailed subtask steps: {task}"}
         return [instruction, message]
 
-    def generate_prompt_task_id(self, task):
+    def generate_prompt_task_id(self, task, objects, rooms):
         """
         Generate a prompt for the task decomposition.
         :param task: The task description.
         :return: A string prompt for the GPT model.
         """
         instruction = {"role": 'system', 'content': 'You are assisting in generating a task id for a user requested task'
-                                                    ' the format should be short camel case similar to a '
-                                                    'c++ class name with no spaces.'}
+                                                    ' The format should be short and underscore separated similar to a '
+                                                    'pythonic class name  with no spaces. Additionally, on a second line,'
+                                                    'include an object or room from the following list that if an image'
+                                                    ' of said room or object that is the most accessible without intensive search'
+                                                    'that would provide enough context to complete the user requested task.'
+                                                    f' Objects: {objects}'
+                                                    f' Rooms: {rooms}'}
         message = {"role": "user", "content": f"Generate an id in the format described for this task: {task}"}
         return [instruction, message]
 
-    def generate_behavior_tree_prompt(self, task, actions, conditions, example, relevant_objects):
+    def generate_behavior_tree_prompt(self, task, actions, conditions, example, relevant_objects, completed_subtasks):
         """
         Generate a prompt specifically for creating a behavior tree in XML format.
         """
+        completed_goals_str = f'''
+        **Completed Sub Goals**
+        The following subgoals have already been completed:
+        {completed_subtasks}
+        ''' if len(completed_subtasks) > 0 else ""
         system_message = f'''
                     You are going to be tasked with creating a behavior tree in XML format for a robot to execute a specific task. Follow these rules carefully:
                     **Actions**: Use only the actions from this list:
@@ -75,6 +93,7 @@ class LLMInterface:
                     {conditions}.
                     No other conditions are allowed.
                     each condition tag should contain name and target members. where name is the condition being checked and target is the target of the condition
+                    {completed_goals_str}
                     **Domain**
                     the domain is defined in pddl as follows:
                     {DOMAIN_DEF}
@@ -91,7 +110,7 @@ class LLMInterface:
                     {example}
                     **Task**:
                     Now, please create a behavior tree in XML format for the robot to execute the task: {task}'.
-        
+                    Make sure that you consider the cases where objects are contained in other objects or the task is already complete in your answer!
                     Ensure your response contains only the XML behavior tree and no additional text. 
                     "{task}"
                 '''
@@ -120,11 +139,13 @@ class LLMInterface:
             1. Valid actions for an <Action> tag: {actions}. No other actions are allowed, and each action should contain name and target members.
             where name is the action being performed and target is the target of the action.
             2. Applicable <condition>s for the actions: {conditions}. No other conditions are allowed, and each condition should contain name and target members.
-            where name is the condition being checked and target is the target of the condition.
+            where name is the condition being checked and target is the target of the condition. an additional 'recipient' 
+            member can also be provided for <condition>s for example <Condition name='isOnTop' target='plate' recipient='diningtable'>.
             3. Detectable object classes: {known_objects}. Only these objects may be used.
                Exception: All food objects can be acted on by the slice action, becoming <item>sliced. For example, "apple" becomes "applesliced".
             4. The only valid tags are <Action>, <Condition>, <Sequence>, <Selector>, <root>, <?xml version="1.0"?>.
             Your response should contain only the corrected behavior tree in XML format and no additional text.
+            Make sure that you consider the cases where objects are contained in other objects or the task is already complete in your answer!
         '''
         prompt = [
             {"role": "system", "content": system_message},
@@ -134,7 +155,7 @@ class LLMInterface:
         return prompt
 
     @sleep_and_retry
-    @limits(calls=10, period=60)  # Example: Max 10 calls per minute
+    @limits(calls=100, period=60)  # Example: Max 10 calls per minute
     def query_llm(self, prompt):
         """
         Query the GPT model with the generated prompt.
@@ -171,27 +192,28 @@ class LLMInterface:
             return None  # Or handle appropriately
         return response.choices[0].message.content
 
-    def get_task_decomposition(self, task):
+    def get_task_decomposition(self, task, known_objects):
         """
         Get the task decomposition from the GPT model.
         :param task: The task description.
         :return: A list or string of decomposed tasks.
         """
-        prompt = self.generate_prompt_htn(task)
+        prompt = self.generate_prompt_htn(task, known_objects)
         decomposition = self.query_llm(prompt)
-        return decomposition
+        return parse_llm_response(decomposition)
 
-    def get_task_id(self, task):
-        prompt = self.generate_prompt_task_id(task)
-        task_id = self.query_llm(prompt)
-        return task_id
+    def get_task_id(self, task, objects, rooms):
+        prompt = self.generate_prompt_task_id(task, objects, rooms)
+        ret = self.query_llm(prompt)
+        context_object = ret.split('\n')[1]
+        task_id = ret.split('\n')[0]
+        return task_id, context_object
 
-
-    def get_behavior_tree(self, task, actions, conditions, example, known_objects):
+    def get_behavior_tree(self, task, actions, conditions, example, known_objects, completed_subtasks):
         """
         Get the behavior tree from the GPT model for a given task.
         """
-        prompt = self.generate_behavior_tree_prompt(task, actions, conditions, example, known_objects)
+        prompt = self.generate_behavior_tree_prompt(task, actions, conditions, example, known_objects, completed_subtasks)
 
         behavior_tree_xml = self.query_llm(prompt)
         for i in range(len(behavior_tree_xml)):

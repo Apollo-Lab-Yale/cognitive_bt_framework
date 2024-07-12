@@ -26,7 +26,8 @@ AI2THOR_ACTIONS = [
     'lookup',
     'lookdown',
     'scanroom',
-    'wash'
+    'wash',
+    'putin'
 ]
 
 AI2THOR_NO_TARGET = [
@@ -64,7 +65,39 @@ AI2THOR_PREDICATES = [
     'pickupable',
     'isPickedUp',
     "inRoom",
-    'moveable'
+    'moveable',
+    'isOnTop',
+    'isInside'
+]
+
+AI2THOR_PREDICATES_ANNOTATED = [
+    'visible',
+    'isInteractable',
+    'receptacle (indicates that an object can have other objects placed into/onto it)',
+    'toggleable',
+    'isToggled',
+    'breakable',
+    'isBroken',
+    'canFillWithLiquid',
+    'isFilledWithLiquid',
+    'dirtyable',
+    'isDirty',
+    'canBeUsedUp',
+    'isUsedUp',
+    'cookable',
+    'isCooked',
+    'isHeatSource',
+    'isColdSource',
+    'sliceable',
+    'isSliced',
+    'openable',
+    'isOpen',
+    'pickupable',
+    'isPickedUp',
+    "inRoom",
+    'moveable',
+    'isOnTop <obj1> <obj2> (indicates object1 is on top of object2)',
+    'isInside <obj1> <obj2> (indicates object1 is inside object2)'
 ]
 
 AI2THOR_TO_VHOME = {
@@ -111,12 +144,12 @@ def get_predicates(objects):
     for object in objects:
         for pred in AI2THOR_TO_VHOME.keys():
             if object[pred]:
-                predicates.append(f"{AI2THOR_TO_VHOME[pred]} {object['objectId']}")
+                predicates.append(f"{AI2THOR_TO_VHOME[pred]} {object['name']}")
         if object['distance'] < CLOSE_DISTANCE:
-            predicates.append(f"close {object['objectId']} character_1")
+            predicates.append(f"close {object['name']} character_1")
         if object['parentReceptacles'] is not None:
             for container in object["parentReceptacles"]:
-                predicates += [f"IN {object['objectId']} {container}", f"ON {object['objectId']} {container}"]
+                predicates += [f"IN {object['name']} {container}", f"ON {object['name']} {container}"]
     return predicates
 
 def is_in_room(point, polygon):
@@ -274,8 +307,8 @@ def get_object_properties_and_states(state):
         if obj["receptacleObjectIds"] is not None:
             for cont_obj in obj['receptacleObjectIds']:
                 object_properties_states["ON_TOP"][(cont_obj, obj["objectId"])] = obj
-                object_properties_states["IN"][(cont_obj, obj['objectId'])] = obj
-                object_properties_states["INSIDE"][(cont_obj, obj['objectId'])] = obj
+                object_properties_states["IN"][(cont_obj, obj['name'])] = obj
+                object_properties_states["INSIDE"][(cont_obj, obj['name'])] = obj
 
 
     return object_properties_states

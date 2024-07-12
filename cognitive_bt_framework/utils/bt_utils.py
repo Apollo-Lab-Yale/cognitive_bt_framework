@@ -147,7 +147,7 @@ class Action(Node):
 
         self.target = target
         if target is not None:
-            self.target = self.target.replace('_', '')
+            self.target = self.target#.replace('_', '')
 
     def execute(self, state, interface, memory):
 
@@ -159,16 +159,17 @@ class Action(Node):
         return f'<Action name="{self.name}" target="{self.target}"/>'
 
 class Condition(Node):
-    def __init__(self, name, target, xml_str):
+    def __init__(self, name, target, recipient, xml_str):
         super().__init__(name)
         self.target = target
+        self.recipient = recipient
         if target is not None:
-            self.target = self.target.replace('_', '')
+            self.target = self.target#.replace('_', '')
         self.xml_str = xml_str
 
     def execute(self, state, interface, memory):
         # Evaluate the Conditionagainst the state
-        success, msg = interface.check_condition(self.name, self.target, memory)
+        success, msg = interface.check_condition(self.name, self.target, self.recipient, memory)
         if 'These objects satisfy the condition' in msg:
             msg = f"{self.name} is FALSE for object {self.target}. " + msg
         return success, msg, self.to_xml()
@@ -187,12 +188,12 @@ class Selector(Node):
             success, msg, _ = child.execute(state, interface, memory)
             if success:
                 return success, msg, ""
-            self.failures.append(msg)
+            self.failures.append(f"{type(child).__name__} Failure: {msg}")
         print(f"{self.failures}")
         return False, f"{self.failures[-1]}", self.to_xml()
 
     def to_xml(self):
-        children_xml = "\n".join(child.to_xml() for child in self.children)
+        # children_xml = "\n".join(child.to_xml() for child in self.children)
         return self.xml_str
 
 
@@ -209,11 +210,11 @@ class Sequence(Node):
                 ret_xml = child_xml
                 if type(child) not in [Sequence, Condition]:
                     ret_xml = self.to_xml()
-                return False, f"{msg}.", self.to_xml()
+                return False, f"{type(child).__name__} Failure: {msg}.", self.to_xml()
         return True, "", ""
 
     def to_xml(self):
-        children_xml = "\n".join(child.to_xml() for child in self.children)
+        # children_xml = "\n".join(child.to_xml() for child in self.children)
         return self.xml_str
 
 
@@ -240,12 +241,14 @@ def parse_node(element, actions, conditions):
         return node
     elif node_type == "Condition":
         target = element.get('target', None)
+        recipient = element.get('recipient', None)
         if target is None:
             target = "TARGET MISSING"
             raise Exception(f"ERROR: Failed to parse <{node_type.lower()} name={element.get('name')} target={target}> DUE TO MISSING TARGET")
         if element.get('name') not in conditions:
             raise Exception(f"ERROR: {element.get('name')} is not a valid condition.")
-        return Condition(element.get('name'), target, xml_str)
+
+        return Condition(element.get('name'), target, recipient, xml_str)
     elif node_type in ["Selector", "Sequence"]:
         node_class = globals()[node_type]
         node = node_class(element.get('name'), xml_str)
@@ -274,17 +277,17 @@ DOMAIN_DEF = """
 
   (:predicates
     ; States
-    (open ?obj - Object)
-    (closed ?obj - Object)
-    (active ?obj)
-    (off ?obj - Object)
+    (isOpen ?obj - Object)
+    (not isOpen ?obj - Object)
+    (isToggled ?obj)
+    (not isToggled ?obj - Object)
     (breakable ?obj - Object)
-    (can_open ?obj - Object)
-    (grabbable ?obj - Object)
+    (openable ?obj - Object)
+    (pickupable ?obj - Object)
     (sittable ?obj - Object)
     (lieable ?obj - Object)
     (has_paper ?obj)
-    (filled ?obj)
+    (isFilledWithLiquid ?obj)
     (has_plug ?obj)
     (lookable ?obj - Object)
     (readable ?obj - Object)
@@ -304,28 +307,25 @@ DOMAIN_DEF = """
     (recipient ?obj - Object)
     (receptacle ?obj - Object)
     (pickupable ?obj - Object)
-    (dirty ?obj)
+    (isDirty ?obj)
     (holds ?obj)
     (water_source ?obj)
     (cleaning_target ?obj)
-    (on ?obj1 - Object ?obj2 - Object)
-    (inside ?obj1 ?obj2)
-    (in ?obj1 ?obj2)
-
+    (isOnTop ?obj1 - Object ?obj2 - Object)
+    (isInside ?obj1 ?obj2)
     (facing ?obj1 - Object ?obj2 - Object)
-    (holds_rh ?character - Character ?obj - Object)
-    (holds_lh ?character - Character ?obj - Object)
+    (isPickedUp ?character - Character ?obj - Object)
     (sitting ?character)
     (close ?character ?object)
     (standing ?character)
     (has_switch ?object)
     (visible ?object)
     (hands_full ?character)
-    (can_cook ?cont)
-    (cooked ?obj ?cont)
-    (in_room ?character ?room)
+    (cookable ?cont)
+    (isCooked ?obj ?cont)
+    (inRoom ?character ?room)
     (sliceable ?obj)
-    (sliced ?obj)
+    (isSliced ?obj)
   )
 
   ; Actions
@@ -342,51 +342,51 @@ DOMAIN_DEF = """
         :precondition (standing ?character)
         :effect (and
                     (forall (?r - Room)
-                        (when (inside ?character ?r) (not(inside ?character ?r))))
-                   (inside ?character ?room)
+                        (when (inRoom ?character ?r) (not(inRoom ?character ?r))))
+                   (inRoom ?character ?room)
                    (close ?character ?room)
                    (forall (?obj - Object)
-                            (when (not(inside ?obj ?room)) (not (visible ?obj))))
+                            (when (not(isInside ?obj ?room)) (not (visible ?obj))))
                  )
                 )
 
     (:action grab
         :parameters (?character - Character ?object - Object)
-        :precondition (and (grabbable ?object) (close ?character ?object) (visible ?object) (not (hands_full ?character)))
-        :effect (and (holds_rh ?character ?object)
+        :precondition (and (pickupable ?object) (close ?character ?object) (visible ?object) (not (hands_full ?character)))
+        :effect (and (isPickedUp ?character ?object)
                       (hands_full ?character)
-                      (forall (?cont - Object)(when (inside ?object ?cont) (not (inside ?object ?cont))))
+                      (forall (?cont - Object)(when (isInside ?object ?cont) (not (isInside ?object ?cont))))
                 )
         )
 
     (:action switchon
         :parameters (?character - Character ?object - Object)
-        :precondition (and (has_switch ?object) (off ?object) (close ?character ?object) (visible ?object) (not (hands_full ?character)))
-        :effect (active ?object))
+        :precondition (and (has_switch ?object) (not isToggled ?object) (close ?character ?object) (visible ?object) (not (hands_full ?character)))
+        :effect (isToggled ?object))
 
     (:action switchoff
         :parameters (?character - Character ?object - Object)
-        :precondition (and (has_switch ?object) (active ?object) (close ?character ?object) (visible ?object) (not (hands_full ?character)))
-        :effect (off ?object))
+        :precondition (and (has_switch ?object) (isToggled ?object) (close ?character ?object) (visible ?object) (not (hands_full ?character)))
+        :effect (not isToggled ?object))
 
     (:action put
         :parameters (?character - Character ?object - Object ?target - Object)
-        :precondition (and (holds_rh ?character ?object) (close ?character ?target))
-        :effect (and (not (holds_rh ?character ?object)) (on ?object ?target) (not (hands_full ?character))) )
+        :precondition (and (isPickedUp ?character ?object) (close ?character ?target))
+        :effect (and (not (isPickedUp ?character ?object)) (isOnTop ?object ?target) (not (hands_full ?character))) )
 
     (:action putin
         :parameters (?character - Character
                       ?object - Object
                       ?container - Object)
-        :precondition (and (holds_rh ?character ?object) (close ?character ?container) (open ?container))
-        :effect (and (not (holds_rh ?character ?object)) (inside ?object ?container) (not (hands_full ?character))))
+        :precondition (and (isPickedUp ?character ?object) (close ?character ?container) (isOpen ?container))
+        :effect (and (not (isPickedUp ?character ?object)) (isInside ?object ?container) (not (hands_full ?character))))
 
     (:action scanroom
         :parameters (?character - Character ?obj - Object ?room - Room)
-        :precondition (and (inside ?character ?room))
+        :precondition (and (inRoom ?character ?room))
         :effect (and
 
-            (when (inside ?obj ?room) (visible ?obj))
+            (when (isInside ?obj ?room) (visible ?obj))
         )
     )
 
@@ -395,32 +395,34 @@ DOMAIN_DEF = """
         :parameters (?character - Character
                      ?container)
         :precondition (and (close ?character ?container)
-                        (closed ?container)
+                        (not isOpen ?container)
                         (visible ?container)
-                        (not(active ?container))
+                        (not(isToggled ?container))
                        )
-        :effect (and (open ?container)
+        :effect (and (isOpen ?container)
                     (forall (?obj - Object)
-                        (when (inside ?obj ?container)
+                        (when (isInside ?obj ?container)
                             (visible ?obj)
                         )
                     )
-                    (not (closed ?container))
+                    (not (not isOpen ?container))
                 )
      )
 
     (:action close
         :parameters (?character - Character
                      ?container)
-        :precondition (and (close ?character ?container) (open ?container) (visible ?container))
-        :effect (and (closed ?container)
-                    (not (open ?container))
+        :precondition (and (close ?character ?container) (isOpen ?container) (visible ?container))
+        :effect (and (not isOpen ?container)
+                    (not (isOpen ?container))
                     (forall (?obj - Object)
-                                (when (inside ?obj ?container)
+                                (when (isInside ?obj ?container)
                                     (not(visible ?obj))
                                 )
                     )
          )
     )
+)
+
 
 """
