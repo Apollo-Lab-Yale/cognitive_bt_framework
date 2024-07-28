@@ -1,4 +1,4 @@
-from cognitive_bt_framework.src.llm_interface.llm_interface_openai import LLMInterface
+from cognitive_bt_framework.src.llm_interface.llm_interface_openai import LLMInterfaceOpenAI
 from cognitive_bt_framework.utils.htn_db_utils import setup_database
 from cognitive_bt_framework.utils.logic_utils import cosine_similarity
 from cachetools import LRUCache

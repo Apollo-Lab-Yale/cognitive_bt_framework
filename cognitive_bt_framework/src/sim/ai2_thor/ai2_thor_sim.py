@@ -3,6 +3,8 @@ import numpy as np
 import time
 import prior
 import random
+import base64
+import cv2
 from cognitive_bt_framework.src.sim.ai2_thor.utils import get_visible_objects, get_predicates, CLOSE_DISTANCE, find_closest_position, is_in_room, get_yaw_angle, get_vhome_to_thor_dict, get_inf_floor_polygon, \
     NO_VALID_PUT, Event, PUT_COLLISION, AI2THOR_PREDICATES
 from cognitive_bt_framework.src.sim.ai2_thor.image_saver import SaveImagesThread
@@ -66,7 +68,8 @@ class AI2ThorSimEnv:
             "turnaround": self.turn_around,
             "lookup": self.look_up,
             "lookdown": self.look_down,
-            "scanroom": self.handle_scan_room
+            "scanroom": self.handle_scan_room,
+            "break": self.break_obj
         }
         self.room_names = ['kitchen']#, 'livingroom', 'bedroom', 'bathroom']
 
@@ -176,6 +179,9 @@ class AI2ThorSimEnv:
     def move_back(self, meters=0.25):
         return self.controller.step("MoveBack", moveMagnitude=meters)
 
+    def break_obj(self, obj):
+        return self.controller.step("BreakObject", objectId=obj['objectId'])
+
     def give_up(self):
         print("womp womp")
         return self.navigate_to_room(target_room_str=self.single_room)
@@ -234,7 +240,7 @@ class AI2ThorSimEnv:
         return self.controller.step(
             action="PutObject",
             objectId=target["objectId"],
-            forceAction=False,
+            forceAction=True,
             placeStationary=False
         )
 
@@ -268,11 +274,11 @@ class AI2ThorSimEnv:
         if object['distance'] > CLOSE_DISTANCE:
             fail_event = Event()
             fail_event.metadata['lastActionSuccess'] = False
-            fail_event.metadata['errorMessage'] = f"Not close enough to {object['name']} to place object."
+            fail_event.metadata['errorMessage'] = f"Not close enough to {object['name']} to open object. Navigate to object."
             return fail_event
         event = self.controller.step(
             action="OpenObject",
-            objectId=object['name'],
+            objectId=object['objectId'],
             openness=1,
             forceAction=False
         )
@@ -284,26 +290,45 @@ class AI2ThorSimEnv:
         if object['distance'] > CLOSE_DISTANCE:
             fail_event = Event()
             fail_event.metadata['lastActionSuccess'] = False
-            fail_event.metadata['errorMessage'] = f"Not close enough to {object['name']} to place object."
+            fail_event.metadata['errorMessage'] = f"Not close enough to {object['name']} to close object. Navigate to object."
             return fail_event
         return self.controller.step(
             action="CloseObject",
-            objectId=object['name'],
+            objectId=object['objectId'],
             forceAction=False
         )
 
     def cook_object(self, object):
         return self.controller.step(
             action="CookObject",
-            objectId=object['name'],
+            objectId=object['objectId'],
             forceAction=False
         )
+
+    def get_context(self, num_images=5):
+        rotation = 360 / num_images
+        pause_time = 0.1
+        img = None
+        encode_params = [int(cv2.IMWRITE_PNG_COMPRESSION), 100]
+        _, frame = cv2.imencode('.png', self.controller.last_event.cv2img)
+        img = base64.b64encode(frame.tobytes()).decode('utf-8')
+        images = [img]
+        states = [self.get_state()]
+        for i in range(num_images):
+            evt = self.turn_left(degrees=int(rotation))
+            time.sleep(pause_time)
+            self.done()
+            _, frame = cv2.imencode('.png', self.controller.last_event.cv2img)
+            img = base64.b64encode(frame.tobytes()).decode('utf-8')
+            images.append(img)
+            states.append(self.get_state())
+        return images, states
 
     def slice_object(self, object):
         if object['distance'] > CLOSE_DISTANCE:
             fail_event = Event()
             fail_event.metadata['lastActionSuccess'] = False
-            fail_event.metadata['errorMessage'] = f"Not close enough to {object['name']} to place object."
+            fail_event.metadata['errorMessage'] = f"Not close enough to {object['name']} to slice object.. Navigate to object."
             return fail_event
         return self.controller.step(
             action="SliceObject",
@@ -315,7 +340,7 @@ class AI2ThorSimEnv:
         if object['distance'] > CLOSE_DISTANCE:
             fail_event = Event()
             fail_event.metadata['lastActionSuccess'] = False
-            fail_event.metadata['errorMessage'] = f"Not close enough to {object['name']} to switch object on."
+            fail_event.metadata['errorMessage'] = f"Not close enough to {object['name']} to switch object on.. Navigate to object."
             return fail_event
         return self.controller.step(
             action="ToggleObjectOn",
@@ -327,7 +352,7 @@ class AI2ThorSimEnv:
         if object['distance'] > CLOSE_DISTANCE:
             fail_event = Event()
             fail_event.metadata['lastActionSuccess'] = False
-            fail_event.metadata['errorMessage'] = f"Not close enough to {object['name']} switch it off."
+            fail_event.metadata['errorMessage'] = f"Not close enough to {object['name']} switch it off.. Navigate to object."
             return fail_event
         return self.controller.step(
             action="ToggleObjectOff",
@@ -398,7 +423,7 @@ class AI2ThorSimEnv:
                 if not self.controller.last_event.metadata["lastActionSuccess"]:
                     return self.controller.last_event.metadata["lastActionSuccess"], self.controller.last_event.metadata[
                         "errorMessage"]
-                if any([self.check_same_obj(goal_obj, object["name"]) for object in state['objects']]) or goal_obj.lower() in self.room_names:
+                if any([self.check_same_obj(goal_obj, object["name"].lower()) for object in state['objects']]) or goal_obj.lower() in self.room_names:
                     print(f"{goal_obj} found!")
                     if j > 0:
                         fn_inv(45)
@@ -406,13 +431,13 @@ class AI2ThorSimEnv:
             if j > 0:
                 fn_inv(45)
         return False, (f"Failed to find object {goal_obj} during scan_room, it may not be visible from my"
-                       f" current position try movement actions like <action name='moveforward'> or <action name='movebackward'>")
+                       f" current position try movement actions or search within closed containing objects.")
 
     def translate_action_for_sim(self, action, state):
         return [action]
 
     def check_same_obj(self, obj1, obj2):
-        return obj1.split("_")[0] == obj2.split("_")[0]
+        return obj1.lower().split("_")[0] == obj2.lower().split("_")[0]
 
     def add_object_waypoint(self, x, y):
         pass
@@ -431,7 +456,7 @@ class AI2ThorSimEnv:
     def check_cooked(self):
         pass
 
-    def check_condition(self, cond, target, recipient, memory):
+    def check_condition(self, cond, target, recipient, memory, value=1):
         target = target.lower()
         current_state = self.get_state()  # Get the current sensor state
         episode_id = memory.current_episode  # Assumes there's a method to get the current episode ID
@@ -439,9 +464,11 @@ class AI2ThorSimEnv:
         # Bulk update all objects in the current state
         objects_to_update = [(obj['name'], obj) for obj in current_state['objects']]
         memory.store_multiple_object_states(objects_to_update, episode_id, self.scene_id)
-        if not any(self.check_same_obj(target, obj['name']) for obj in current_state['objects']):
+        if 'handsfull' in cond.lower():
+            return any(obj['isPickedUp'] for obj in self.get_graph()['objects']) == value, ''
+        if not any(self.check_same_obj(target, obj) for obj in self.object_names):
             return False, "There is no object named {} in this env to check condition.".format(target)
-        if not any(self.check_same_obj(recipient, obj['name']) for obj in current_state['objects']):
+        if recipient is not None and not any(self.check_same_obj(recipient, obj) for obj in self.object_names):
             return False, "There is no object named {} in this env to check condition.".format(recipient)
         # Find specific target object
         object_state = next((obj for obj in current_state['objects'] if target in obj['name'].lower()), None)
@@ -454,32 +481,44 @@ class AI2ThorSimEnv:
 
         if "visible" in cond.lower():
             isVisible = object_state is not None or target.lower() in self.room_names
-            msg = "" if isVisible else f"{target} is not currently visible. Try search actions like <action name=scanroom target={target}/>."
+            msg = "" if isVisible else f"{target} is not currently visible./>."
             return isVisible, msg
+        if "isclose" in cond.lower():
+            isClose = object_state is not None and object_state['distance'] < CLOSE_DISTANCE
+            return isClose, ""
         if "isontop" in cond.lower() or "isinside" in cond.lower():
             if recipient is None:
-                return False, f"I failed to check {cond} target={target} because recipient is None."
-            surfCont = [obj for obj in current_state['objects'] if recipient.lower() in obj['name'].lower()]
+                return False, (f"I failed to check {cond} target={target} because recipient is None. please provide a "
+                               f"recipient in the following format "
+                               f"<Condition name={cond} target={target} recipient=<object to check if {target} satisfies {cond}>> ")
+            surfCont = [obj for obj in self.get_graph()['objects'] if recipient.lower() in obj['name'].lower()]
             if len(surfCont) == 0:
                 surfCont, _ = memory.retrieve_object_state(recipient)
             else:
                 surfCont = surfCont[0]
             if surfCont is None:
-                return False, f'I failed to check <condition name={cond} target={target} recipient={recipient}/> because the object state is unknown. Try search actions like <action name=scanroom target={target}/>.'
+                return False, (f'I failed to check <condition name={cond} target={target} recipient={recipient}/> '
+                               f'because the object state is unknown. Try search actions like '
+                               f'<action name=scanroom target={target}/> or look for {target} inside recepticals.')
             if surfCont['receptacleObjectIds'] is None or not surfCont['receptacle']:
                 return False, f"{recipient} is not a receptical so {target} cannot be {cond}."
             isInOn = any(target.lower().split('_')[0] in name.lower() for name in surfCont['receptacleObjectIds'])
-            return isInOn, "" if isInOn else f"<condition name={cond} target={target} recipient={recipient}/> is False."
+            msg = "" if isInOn == value else f"<condition name={cond} target={target} recipient={recipient}/> is {isInOn}."
+            return isInOn == value, msg
 
         if object_state and cond in object_state:
+            if cond.lower() in "isopen" and not object_state['openable']:
+                return True , ''
             cond_objs = []
             msg = ''
             if not object_state[cond]:
                 cond_objs = [obj['name'] for obj in current_state['objects'] if obj[cond]]
                 msg = f"These objects satisfy the condition {cond}: f{cond_objs}"
-            return object_state[cond], msg
+            return object_state[cond] == value, msg
 
-        return False, f'I failed to check <condition name={cond} target={target}/> because the object state is unknown. Try search actions like <action name=scanroom target={target}/>.'
+        return False, (f'I failed to check <condition name={cond} target={target}/> '
+                       f'because the object state is unknown. Try search actions like '
+                       f'<action name=scanroom target={target}/> or look for {target} inside recepticals.')
 
     def execute_actions(self, actions, memory):
         episode_id = memory.current_episode
@@ -495,15 +534,26 @@ class AI2ThorSimEnv:
 
             if type(target) == list:
                 target = target[0]
+            if "walk_to_object" in action.lower() and "sinkbasin" in target.lower():
+                obj = [ob for ob in self.get_graph()['objects'] if "sinkbasin" in ob['name'].lower()]
+                if len(obj) == 0:
+                    return False, "There is no object named {} in this env to execute action.".format(target)
+                evt = self.navigate_to_object(object=obj[0])
+                print(evt.keys())
+                return evt['LastActionSuccess'], evt["ErrorMessage"]
+
             print(target)
             print(f"target type {type(target)}")
-            if not any(self.check_same_obj(target, obj['name']) for obj in current_state['objects']):
-                print(self.object_names)
-                return False, "There is no object named {} in this env to execute action.".format(target)
-            print(f"^^^^^^^^^^^^^^^ {target}")
             if target is None or target == 'None':
                 result = self.action_fn_from_str[act]()
                 continue
+            if target not in self.room_names and not any(self.check_same_obj(target, obj.lower()) for obj in self.object_names) and target != 'None':
+                print(self.object_names)
+                return False, "There is no object named {} in this env to execute action.".format(target)
+            print(f"^^^^^^^^^^^^^^^ {target}")
+
+            if 'scanroom' in act:
+                return self.handle_scan_room(target, memory)
             # Bulk update all objects in the current state
             objects_to_update = [(obj['name'], obj) for obj in current_state['objects']]
             memory.store_multiple_object_states(objects_to_update, episode_id, self.scene_id)
@@ -511,8 +561,7 @@ class AI2ThorSimEnv:
             if target in current_state['room_names'] or target.lower() in self.room_names:
                 ret = self.action_fn_from_str[act](target)
                 return True, ''
-            if 'scanroom' in act:
-                return self.handle_scan_room(target, memory)
+
             # Find specific target object
             object_state = next((obj for obj in current_state['objects'] if target.lower() in obj['name'].lower()), None)
 
@@ -562,15 +611,23 @@ class AI2ThorSimEnv:
         return None
 
 
-    def check_satisfied(self, sub_goal):
+    def check_satisfied(self, sub_goal, memory):
         state = self.get_graph()
         to_remove = []
         success = False
+        print(f"^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^6 subg0l: {sub_goal}")
         if sub_goal is None:
             raise Exception('No goal set.')
-            return True
-        pred, params = parse_instantiated_predicate(sub_goal)
-        print( sub_goal)
+            return True, ''
+        print(sub_goal)
+        sub_goal = sub_goal.split(" ")
+        value = int(sub_goal[-1])
+        pred = sub_goal[0]
+        params = sub_goal[1:-1]
+        target = params[0]
+        recipient = params[1] if len(params) > 1 else None
+        return self.check_condition(pred, target=target, recipient=recipient, memory=memory, value=value)
+        print(f"pred, params, value: {pred},{params},{value}")
         if "WASHED" in pred:
             if "SINK" in pred:
                 faucet_str = params[2]
@@ -612,10 +669,12 @@ class AI2ThorSimEnv:
                 print(f"failed to find predicate: {pred} ")
                 return False, to_remove
             param = params[0] if "character" not in params[0] else params[1]
-            obj = [object for object in state["objects"] if param.lower() in object["objectId"].lower()]
+            obj = [object for object in state["objects"] if self.check_same_obj(param, object['name'])]
             if len(obj) == 0:
                 return False, to_remove
             obj = obj[0]
+            if pred.lower() in "isopen" and not obj['openable']:
+                return True, to_remove
             success = obj[key]
             print(obj[key])
             print(param)
@@ -628,6 +687,10 @@ class AI2ThorSimEnv:
 
     def check_goal(self, goal):
         state = self.get_graph()
+        if goal == 'put_food':
+            foods = [item['objectId'] for item in state['objects'] if item['salientMaterials'] is not None and'Food' in item['salientMaterials']]
+            fridge = [item for item in state['objects'] if 'fridge' in item['name'].lower()][0]
+            return all(food in fridge['receptacleObjectIds'] for food in foods)
         if goal == 'coffee':
             return any([obj['fillLiquid'] == 'coffee' for obj in state["objects"] if 'mug' in obj['name'].lower()])
         if goal == 'water_cup':

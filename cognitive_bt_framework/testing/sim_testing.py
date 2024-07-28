@@ -4,9 +4,7 @@ trooms = [4, 7, 9, 11, 15, 16, 17, 18, 19, 20, 21, 23, 24, 26, 27, 28]
 
 
 sim = AI2ThorSimEnv()
-state = sim.get_graph()['objects']
-for obj in state:
-    if 'cabinet' in obj['name'].lower():
-        print(obj['name'])
-        print(obj)
-print(state[0])
+state = sim.get_graph()
+apple = [obj for obj in state['objects'] if 'apple' in obj['name'].lower()]
+print(apple)
+print(state['predicates'])

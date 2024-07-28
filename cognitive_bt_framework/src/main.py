@@ -1,4 +1,4 @@
-from cognitive_bt_framework.src.llm_interface.llm_interface_openai import LLMInterface
+from cognitive_bt_framework.src.llm_interface.llm_interface_openai import LLMInterfaceOpenAI
 from cognitive_bt_framework.src.htn_planner.htn_planner import HTNPlanner
 from cognitive_bt_framework.src.cbt_planner.cbtf import CognitiveBehaviorTreeFramework
 

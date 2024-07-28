@@ -7,6 +7,7 @@ NO_VALID_PUT = "No valid positions to place object found"
 PUT_COLLISION = "another object's collision is blocking held object from being placed"
 
 AI2THOR_ACTIONS = [
+    'break',
     'walk_to_room',
     'walk_to_object',
     'grab',
@@ -26,8 +27,32 @@ AI2THOR_ACTIONS = [
     'lookup',
     'lookdown',
     'scanroom',
+    'wash'
+]
+
+AI2THOR_ACTIONS_ANNOTATED = [
+    'break',
+    'walk_to_room',
+    'walk_to_object',
+    'grab',
+    'turnleft',
+    'turnright',
+    'put <receptical> (attempts to place object in agents hand onto/into target receptical)',
+    'open',
+    'close',
+    'cook',
+    'switchon',
+    'switchoff',
+    'slice',
+    'cut',
+    'moveforward',
+    'movebackward',
+    'turnaround',
+    'lookup',
+    'lookdown',
+    'scanroom',
     'wash',
-    'putin'
+    'putin <reciptical> (attempts to place object in agents hand onto/into target receptical)'
 ]
 
 AI2THOR_NO_TARGET = [
@@ -67,7 +92,9 @@ AI2THOR_PREDICATES = [
     "inRoom",
     'moveable',
     'isOnTop',
-    'isInside'
+    'isInside',
+    'isClose',
+    "handsFull"
 ]
 
 AI2THOR_PREDICATES_ANNOTATED = [
@@ -91,13 +118,15 @@ AI2THOR_PREDICATES_ANNOTATED = [
     'sliceable',
     'isSliced',
     'openable',
-    'isOpen',
+    'isOpen (indicates that an object with a door is open such as a cabinet)',
     'pickupable',
     'isPickedUp',
     "inRoom",
     'moveable',
+    "handsFull <obj>",
     'isOnTop <obj1> <obj2> (indicates object1 is on top of object2)',
-    'isInside <obj1> <obj2> (indicates object1 is inside object2)'
+    'isInside <obj1> <obj2> (indicates object1 is inside object2)',
+    'isClose <obj1> (indicates obj1 is close to the robot and can be interacted with)'
 ]
 
 AI2THOR_TO_VHOME = {
