@@ -247,35 +247,49 @@ def is_facing(reference_position, reference_rotation, target_position):
     # Check if the reference is facing the target (dot product close to 1)
     return dot_product > .25  # Adjust this threshold as needed
 
-def find_closest_position(point, orientation, positions, radius = .5, facing=False):
-    """
-    Find the closest position to a reference point.
+# def find_closest_position(point, orientation, positions, radius = .5, facing=False):
+#     """
+#     Find the closest position to a reference point.
+#
+#     Args:
+#     point -- A dict {'x': x_value, 'y': y_value, 'z': z_value} representing the reference point.
+#     positions -- A list of dicts [{'x': x_value, 'y': y_value, 'z': z_value}, ...] representing the valid positions.
+#
+#     Returns:
+#     A dict representing the closest position.
+#     """
+#
+#     def distance(p1, p2):
+#         """Calculate Euclidean distance ignoring y coordinate."""
+#         return ((p1['x'] - p2['x']) ** 2 + (p1['z'] - p2['z']) ** 2) ** 0.5
+#
+#     min_distance = float('inf')
+#     closest_position = None
+#
+#     for pos in positions:
+#         dist = distance(point, pos)
+#         if min_distance > dist >= radius:
+#             if facing and not is_facing(point, orientation, pos):
+#                 continue
+#             min_distance = dist
+#             closest_position = pos
+#
+#     return closest_position
 
-    Args:
-    point -- A dict {'x': x_value, 'y': y_value, 'z': z_value} representing the reference point.
-    positions -- A list of dicts [{'x': x_value, 'y': y_value, 'z': z_value}, ...] representing the valid positions.
-
-    Returns:
-    A dict representing the closest position.
-    """
-
-    def distance(p1, p2):
-        """Calculate Euclidean distance ignoring y coordinate."""
-        return ((p1['x'] - p2['x']) ** 2 + (p1['z'] - p2['z']) ** 2) ** 0.5
-
-    min_distance = float('inf')
+def find_closest_position(object_position, object_orientation, positions, interaction_distance=1.0, facing=True):
     closest_position = None
+    min_distance = float('inf')
 
     for pos in positions:
-        dist = distance(point, pos)
-        if min_distance > dist >= radius:
-            if facing and not is_facing(point, orientation, pos):
-                continue
-            min_distance = dist
+        distance = np.linalg.norm(np.array([pos['x'], pos['z']]) - np.array([object_position['x'], object_position['z']]))
+        if distance < min_distance and distance <= interaction_distance:
             closest_position = pos
+            min_distance = distance
+
+    if facing and closest_position is not None:
+        closest_position['rotation'] = get_yaw_angle(closest_position, object_orientation, object_position)
 
     return closest_position
-
 
 def get_top_down_frame(sim):
     # Setup the top-down camera
@@ -367,19 +381,32 @@ def get_world_predicate_set(graph, custom_preds=()):
 #
 #     return angle
 
-def get_yaw_angle(pose1, orientation, pose2):
-    x1, y1 = pose1['x'], pose1['z']
-    x2, y2 = pose2['x'], pose2['z']
-    # Calculate the angle from the first point to the second point
-    angle_to_second_point = math.degrees(math.atan2( x2 - x1, y2 - y1))
+# def get_yaw_angle(pose1, orientation, pose2):
+#     x1, y1 = pose1['x'], pose1['z']
+#     x2, y2 = pose2['x'], pose2['z']
+#     # Calculate the angle from the first point to the second point
+#     angle_to_second_point = math.degrees(math.atan2( x2 - x1, y2 - y1))
+#
+#     # Adjust for the orientation of the first point
+#     relative_angle = angle_to_second_point - orientation['y']
+#
+#     # Normalize the angle to be between 0 and 360 degrees
+#     relative_angle = relative_angle % 360
+#
+#     return relative_angle
 
-    # Adjust for the orientation of the first point
-    relative_angle = angle_to_second_point - orientation['y']
+# def get_yaw_angle(agent_position, agent_orientation, object_position):
+#     dx = object_position['x'] - agent_position['x']
+#     dz = object_position['z'] - agent_position['z']
+#     yaw = np.degrees(np.arctan2(dz, dx))
+#     return (yaw - agent_orientation['y']) % 360
 
-    # Normalize the angle to be between 0 and 360 degrees
-    relative_angle = relative_angle % 360
 
-    return relative_angle
+def get_yaw_angle(agent_position, agent_orientation, object_position):
+    dx = object_position['x'] - agent_position['x']
+    dz = object_position['z'] - agent_position['z']
+    yaw = np.degrees(np.arctan2(dz, dx))
+    return (yaw - agent_orientation['y']) % 360
 
 def get_room_polygon(scene, room):
     try:

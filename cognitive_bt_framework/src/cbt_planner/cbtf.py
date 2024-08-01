@@ -174,7 +174,7 @@ class CognitiveBehaviorTreeFramework:
         for i in range(self.max_actions):
             if self.robot_interface.check_satisfied(complete_condition[0], memory=self.memory)[0]:
                 print(f'{complete_condition} is satisfied')
-                return ret
+                return True, "", bt_root.to_xml()
             self.update_known_objects()
             ret = bt_root.execute(self.robot_interface.get_state(), interface=self.robot_interface, memory=self.memory)
             print(f"^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^66 ret: {ret}")
@@ -255,21 +255,6 @@ class CognitiveBehaviorTreeFramework:
 
     def manage_task(self, task_name):
         episode_id = self.memory.start_new_episode(task_name)
-        # context, states = self.robot_interface.get_context(3)
-        # task_name, context = self.llm_interface.get_task_id(task_name, context, states)
-        # print(task_name)
-        # print()
-        # print(context)
-        # # Load or generate a behavior tree for the task
-        # task_embedding = self.get_embedding(task_name)
-        # task_incomplete = True
-        # ret = None#self.find_most_similar_task_decomp(task_embedding, task_name)
-        # self.update_known_objects()
-        # if ret is None:
-        #     sub_tasks, sub_task_ids, complete_conditions = self.generate_decomposition(task_name, task_embedding, context)
-        #     print(complete_conditions)
-        # else:
-        #     sub_tasks, sub_task_ids, complete_conditions = ret[0], ret[1], ret[2]
         while not self.robot_interface.check_goal(self.goal):
             try:
                 context, states = self.robot_interface.get_context(3)
@@ -297,6 +282,9 @@ class CognitiveBehaviorTreeFramework:
                         bt_root, bt_xml = self.load_or_generate_bt(task_name, sub_task_id, sub_task_name,
                                                                    completed_subtasks, context, complete_conditions[i])
                         success, msg, subtree_xml = self.execute_behavior_tree(bt_root, complete_conditions[i])
+                        if self.robot_interface.check_satisfied(complete_conditions[i], memory=self.memory)[0]:
+                            complete_conditions.append(sub_task_name)
+                            break
                     except Exception as e:
                         print(f"Failed to execute or parse behavior tree due to {e}.")
                         subtree_xml = "NO SUBTREE DUE TO FAILURE"
@@ -309,6 +297,9 @@ class CognitiveBehaviorTreeFramework:
                                                              msg, context, complete_conditions[i],
                                                              completed_subtasks, context_img)
                         success, msg, subtree_xml = self.execute_behavior_tree(new_root, complete_conditions[i])
+                        if self.robot_interface.check_satisfied(complete_conditions[i], memory=self.memory)[0]:
+                            complete_conditions.append(sub_task_name)
+                            break
                     except Exception as e:
                         print(f"Failed to execute behavior tree due to {e}.")
                         print(type(e))
@@ -333,39 +324,6 @@ class CognitiveBehaviorTreeFramework:
                         msg = str(e)
             print('Success!')
 
-    def manage_task_nohtn(self, task_name):
-        episode_id = self.memory.start_new_episode(task_name)
-        task_id = self.llm_interface.get_task_id(task_name)
-        # Load or generate a behavior tree for the task
-        task_embedding = self.get_embedding(task_id)
-        task_incomplete = True
-        task_id = self.find_most_similar_task(task_embedding, task_name)
-        self.update_known_objects()
-        try:
-            bt_root, bt_xml = self.load_or_generate_bt(task_id, task_name)
-            success, msg, subtree_xml = self.execute_behavior_tree(bt_root)
-        except Exception as e:
-            print(f"Failed to execute or parse behavior tree due to {e}.")
-            subtree_xml = "NO SUBTREE DUE TO FAILURE"
-            success = False
-            msg = str(e)
-        while not self.robot_interface.check_goal(self.goal):
-            self.update_known_objects()
-            # Get feedback based on execution, simulated here as a function
-            if success and task_incomplete:
-                msg = f"Execution of behavior tree ended in success but task {task_name} is NOT COMPLETED."
-            print(f"Failed to execute behavior tree due to {msg}.")
-            # Refine the behavior tree based on feedback
-            try:
-                new_root = self.refine_and_update_bt(task_name, task_id, subtree_xml, msg)
-                success, msg, subtree_xml = self.execute_behavior_tree(new_root)
-            except Exception as e:
-                print(f"Failed to execute behavior tree due to {e}.")
-                print(type(e))
-                success = False
-                msg = str(e)
-        print('Success!')
-
     def manage_task_ordered(self, task_name):
         episode_id = self.memory.start_new_episode(task_name)
 
@@ -373,18 +331,27 @@ class CognitiveBehaviorTreeFramework:
             try:
                 context, states = self.robot_interface.get_context(3)
                 task_name, context = self.llm_interface.get_task_id(task_name, context, states)
-                task_embedding = self.get_embedding(task_name)
-                decomposition = self.llm_interface.get_task_decomposition_ordered(task_name, task_embedding, context)
+                # task_embedding = self.get_embedding(task_name)
+                decomposition = self.llm_interface.get_task_decomposition_ordered(task_name, self.robot_interface.object_names, context)
                 print(decomposition)
-            except AttributeError as e:
+
+                for subtask_name, details in decomposition.items():
+                    sub_complete = False
+                    subtask_conditions = details['conditions']
+                    print(f"DETAILS {details}")
+                    if not self.robot_interface.validate_goal(details):
+                        raise Exception("Object in goal condition is not in known objects")
+                print(decomposition)
+            except Exception as e:
                 print(f"Task Decomposition failed: {e}")
                 continue
 
             def execute_subtasks(subtasks, completed_subtasks):
                 print(subtasks)
                 for subtask_name, details in subtasks.items():
-                    sub_complete = False
                     subtask_conditions = details['conditions']
+                    if not self.robot_interface.validate_goal:
+                        return False
                     subtask_subtasks = details['subtasks']
 
                     while not self.robot_interface.check_satisfied(subtask_conditions[0], memory=self.memory)[0]:
@@ -400,7 +367,10 @@ class CognitiveBehaviorTreeFramework:
                                 task_name, subtask_name, subtask_name, completed_subtasks, context, subtask_conditions
                             )
                             success, msg, subtree_xml = self.execute_behavior_tree(bt_root, subtask_conditions)
-                        except TypeError as e:
+                            if self.robot_interface.check_satisfied(subtask_conditions[0], memory=self.memory)[0]:
+                                completed_subtasks.append(subtask_name)
+                                break
+                        except Exception as e:
                             print(f"Failed to execute or parse behavior tree due to {e}.")
                             subtree_xml = "NO SUBTREE DUE TO FAILURE"
                             success = False
@@ -413,6 +383,9 @@ class CognitiveBehaviorTreeFramework:
                                 completed_subtasks, context_img
                             )
                             success, msg, subtree_xml = self.execute_behavior_tree(new_root, subtask_conditions)
+                            if self.robot_interface.check_satisfied(subtask_conditions[0], memory=self.memory)[0]:
+                                completed_subtasks.append(subtask_name)
+                                break
                         except Exception as e:
                             print(f"Failed to execute behavior tree due to {e}.")
                             success = False
@@ -444,7 +417,7 @@ class CognitiveBehaviorTreeFramework:
             completed_subtasks = []
             execute_subtasks(decomposition, completed_subtasks)
 
-            print('Success!')
+            print('Success!!')
 
         return True
 
@@ -454,4 +427,4 @@ if __name__ == "__main__":
     # goal, _ = get_make_coffee(sim)
     cbtf = CognitiveBehaviorTreeFramework(sim)
     cbtf.set_goal('put_food')
-    print(cbtf.manage_task_ordered("put the food that is out in the fridge"))
+    print(cbtf.manage_task_ordered("put the food in the fridge"))

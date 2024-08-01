@@ -224,10 +224,17 @@ class AI2ThorSimEnv:
                              forceAction=False,
                              manualInteract=True)
         success = object['isPickedUp']
-        # self.controller.step("MoveHeldObjectUp", moveMagnitude=0.1, forceVisible=True)
-        # for i in range(20):
-        #     self.controller.step("MoveHeldObjectUp", moveMagnitude=0.01, forceVisible=True)
-        #     ret = self.controller.step("MoveHeldObjectBack", moveMagnitude=0.01, forceVisible=True)
+        state = self.get_state()
+        cam_horizon = state['robot_state']['cameraHorizon']
+        if abs(cam_horizon) > 0:
+            if cam_horizon < 0:
+                self.look_down(abs(cam_horizon))
+            else:
+                self.look_up(abs(cam_horizon) )
+        self.controller.step("MoveHeldObjectUp", moveMagnitude=0.1, forceVisible=True)
+        for i in range(20):
+            self.controller.step("MoveHeldObjectUp", moveMagnitude=0.01, forceVisible=True)
+            self.controller.step("MoveHeldObjectBack", moveMagnitude=0.01, forceVisible=True)
         return ret
 
     def place_object(self, target):
@@ -263,7 +270,7 @@ class AI2ThorSimEnv:
         event = self.controller.step(
             action="Teleport",
             position=teleport_pose,
-            rotation={'x': 0.0, 'y': get_yaw_angle(teleport_pose,{'y':0.0}, object['position']), 'z': 0.0},
+            rotation={'x': 0.0, 'y': get_yaw_angle(teleport_pose,object['rotation'], object['position']), 'z': 0.0},
             forceAction=True
         )
         print("navigated to object scanning")
@@ -425,8 +432,8 @@ class AI2ThorSimEnv:
                         "errorMessage"]
                 if any([self.check_same_obj(goal_obj, object["name"].lower()) for object in state['objects']]) or goal_obj.lower() in self.room_names:
                     print(f"{goal_obj} found!")
-                    if j > 0:
-                        fn_inv(45)
+                    # if j > 0:
+                    #     fn_inv(45)
                     return True, ""
             if j > 0:
                 fn_inv(45)
@@ -456,16 +463,21 @@ class AI2ThorSimEnv:
     def check_cooked(self):
         pass
 
+
+
+
     def check_condition(self, cond, target, recipient, memory, value=1):
         target = target.lower()
         current_state = self.get_state()  # Get the current sensor state
         episode_id = memory.current_episode  # Assumes there's a method to get the current episode ID
-
+        if "inroom" in cond.lower():
+            return True, ""
         # Bulk update all objects in the current state
         objects_to_update = [(obj['name'], obj) for obj in current_state['objects']]
         memory.store_multiple_object_states(objects_to_update, episode_id, self.scene_id)
         if 'handsfull' in cond.lower():
-            return any(obj['isPickedUp'] for obj in self.get_graph()['objects']) == value, ''
+            hands_full = any(obj['isPickedUp'] for obj in self.get_graph()['objects'])
+            return  hands_full== value, f'Condition handsFull is {hands_full}'
         if not any(self.check_same_obj(target, obj) for obj in self.object_names):
             return False, "There is no object named {} in this env to check condition.".format(target)
         if recipient is not None and not any(self.check_same_obj(recipient, obj) for obj in self.object_names):
@@ -482,9 +494,11 @@ class AI2ThorSimEnv:
         if "visible" in cond.lower():
             isVisible = object_state is not None or target.lower() in self.room_names
             msg = "" if isVisible else f"{target} is not currently visible./>."
+
             return isVisible, msg
         if "isclose" in cond.lower():
             isClose = object_state is not None and object_state['distance'] < CLOSE_DISTANCE
+            msg = f"isClose {object_state['name'].lower()} is {isClose}"
             return isClose, ""
         if "isontop" in cond.lower() or "isinside" in cond.lower():
             if recipient is None:
@@ -700,6 +714,17 @@ class AI2ThorSimEnv:
             return any(fridge in obj['parentReceptacles'] for obj in state["objects"] if 'apple' in obj['name'].lower() and obj['parentReceptacles'] is not None)
         return False
 
+    def validate_goal(self, goal):
+        sub_goal = goal['conditions'][0]
+        sub_goal = sub_goal.split(" ")
+        value = int(sub_goal[-1])
+        pred = sub_goal[0]
+        params = sub_goal[1:-1]
+        target = params[0]
+        if pred not in AI2THOR_PREDICATES or target not in self.object_names:
+            # raise "Invalid goal"
+            return False
+        return True
 
 if __name__ == '__main__':
     sim = AI2ThorSimEnv()

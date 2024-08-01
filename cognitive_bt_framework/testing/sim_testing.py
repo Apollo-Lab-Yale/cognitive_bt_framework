@@ -4,7 +4,14 @@ trooms = [4, 7, 9, 11, 15, 16, 17, 18, 19, 20, 21, 23, 24, 26, 27, 28]
 
 
 sim = AI2ThorSimEnv()
-state = sim.get_graph()
-apple = [obj for obj in state['objects'] if 'apple' in obj['name'].lower()]
-print(apple)
-print(state['predicates'])
+
+print(sim.get_graph()['agent'])
+
+sim.look_down()
+sim.move_back()
+sim.move_back()
+print(sim.get_graph()['agent'])
+sim.turn_left()
+sim.turn_left()
+print(sim.get_graph()['agent'])
+input()

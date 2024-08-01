@@ -1,5 +1,5 @@
 import xml.etree.ElementTree as ET
-from cognitive_bt_framework.src.sim.ai2_thor.utils import AI2THOR_NO_TARGET
+from cognitive_bt_framework.src.sim.ai2_thor.utils import AI2THOR_NO_TARGET, AI2THOR_ACTIONS, AI2THOR_PREDICATES
 
 BASE_EXAMPLE = '''
 <?xml version="1.0"?>
@@ -233,20 +233,21 @@ def parse_bt_xml(xml_content, actions, conditions):
     root = ET.fromstring(xml_content)
     return parse_node(root, actions, conditions)
 
-
-
-
 def parse_node(element, actions, conditions):
     node_type = element.tag.capitalize()
     xml_str = ET.tostring(element)
     if node_type == "Action":
         target = element.get('target', None)
-        if target is None and element.get('name') not in AI2THOR_NO_TARGET:
+        recipient = element.get('target', None)
+        if target is None and element.get('name') not in actions:
             target = "TARGET MISSING"
             raise Exception(f"ERROR: Failed to parse <{node_type.lower()} name={element.get('name')} target={target}> DUE TO MISSING TARGET")
         if not any(element.get('name') in action for action in actions):
             raise Exception(f"ERROR: {element.get('name')} is not a valid action.")
-        node = Action(element.get('name'), element.get('target'), xml_str)
+        if element.get('name').lower() in ['put', 'putin']:
+            if recipient is not None:
+                target = recipient
+        node = Action(element.get('name'), target, xml_str)
         return node
     elif node_type == "Condition":
         target = element.get('target', None)

@@ -128,10 +128,11 @@ class LLMInterfaceOpenAI:
                     {DOMAIN_DEF}
                     **Behavior Tree Structure**:
                     - Use <Sequence> tags to execute all child actions or conditions in order until one fails or returns False.
-            -       - Use <Selector> tags to execute each child action or condition in order until one succeeds or returns True.
+                    - Use <Selector> tags to execute each child action or condition in order until one succeeds or returns True.
                     
                    **Object Classes**: You can only interact with objects from this list:
                    {relevant_objects}.
+                   All action and condition targets must come from the detectable object list.
                    No other objects are allowed. Exception: Slicing a food object results in '<item>sliced', e.g., 'apple' becomes 'applesliced'.
                     The one exception to the above requirement is: all food objects can be acted on by slice and become <item>sliced. For example, slicing "apple" results in "applesliced"
                     ** Environmental Description**
@@ -143,6 +144,10 @@ class LLMInterfaceOpenAI:
                     Make sure that you consider the cases where objects are contained in other objects or the task is already complete in your answer!
                     The completion condition for this task is: {complete_condition}
                     Ensure your response contains only the XML behavior tree and no additional text. 
+                    **Object Classes**: You can only interact with objects from this list:
+                   {relevant_objects}.
+                   f'Remember The robot can only hold ONE object at a time. '
+                   That means all targets and goals should come from the provided list.
                     "{task}"
                 '''
         instruction = {"role": 'system', 'content': system_message}
@@ -156,6 +161,7 @@ class LLMInterfaceOpenAI:
         :param task: The task description.
         :return: A string prompt for the GPT model.
         """
+        print(f"known objects$$$$$$$$$$$$$$$$$$ {known_objects}")
         instruction = {
             "role": 'system',
             'content': 'You are assisting in decomposing a high-level goal for a robot. '
@@ -165,16 +171,17 @@ class LLMInterfaceOpenAI:
                        'with no spaces. Provide the most complete decomposition possible. '
                        'If the task is sufficiently small, do not generate subtasks. Sufficiently reduced '
                        'subtasks include tasks like empty_trash, clear_counters, empty_dishwasher, etc. '
-                       'Do not reduce subtasks to single actions. '
                        'Additionally, for each subtask, provide a SINGLE object state condition '
-                       'that defines when the subtask is considered complete. Format these conditions '
+                       'that defines when the subtask is considered complete any objects included in these condition MUST'
+                       f'come from this list: {known_objects}. Format these conditions '
                        'as a bulleted list directly under the subtask, each condition on a new line '
                        'with a dash "-" at the beginning. All conditions should come from '
                        f'the following list without exception: {AI2THOR_PREDICATES_ANNOTATED} followed '
                        'by a space, the object that the condition applies to, and a 1 or 0 indicating if the predicate should be true or false. '
                        'All conditions must target a specific object and cannot contain placeholders. '
-                       'All objects in your decomposition should come from this list without exception: {known_objects}. '
-                       f'Here is a brief description of the environment: {context}'
+                       f'Use the following context of my surroundings to guide task decomposition: {context}'
+                       f'All objects in subtask completion criteria MUST come from this list without exception: {known_objects}.'
+                       f'The robot can only hold ONE object at a time. '
         }
         message = {"role": "user", "content": f"Decompose the following task into detailed subtask steps: {task}"}
         return [instruction, message]
@@ -219,13 +226,20 @@ class LLMInterfaceOpenAI:
             member can also be provided for <condition>s for example <Condition name='isOnTop' target='plate' recipient='diningtable'>.
             3. Detectable object classes: {known_objects}. Only these objects may be used.
                Exception: All food objects can be acted on by the slice action, becoming <item>sliced. For example, "apple" becomes "applesliced".
+               All action and condition targets must come from the detectable object list.
             4. The only valid tags are <Action>, <Condition>, <Sequence>, <Selector>, <root>, <?xml version="1.0"?>.
             - Use <Sequence> tags to execute all child actions or conditions in order until one fails or returns False.
             - Use <Selector> tags to execute each child action or condition in order until one succeeds or returns True.
             Here is a brief description of the environment: {context}
             Your response should contain only the corrected behavior tree in XML format and no additional text.
             the completion criteria for this task is: {complete_condition}
+            Remember ALL action and condition targets and goal objects should come from this list: {known_objects}
             Make sure that you consider the cases where objects are contained in other objects or the task is already complete in your answer!
+            Again, fix the following broken tree:
+            Sub-tree where the error occurred: {original_bt_xml}
+            ENSURE YOU ADDRESS THIS ERROR:
+            Associated feedback and error information: {feedback}. {error_info}
+            f'Remember The robot can only hold ONE object at a time. '
         '''
         prompt = [
             {"role": "system", "content": system_message},
@@ -256,6 +270,7 @@ class LLMInterfaceOpenAI:
         :param prompt: The prompt for task decomposition.
         :return: The model's response as a task decomposition.
         """
+        # print(f"LLM PROMPT: {prompt}")
         try:
             response = self.client.chat.completions.create(
                 model=self.model_name,
