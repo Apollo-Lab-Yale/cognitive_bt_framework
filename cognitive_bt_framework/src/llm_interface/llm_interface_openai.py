@@ -197,7 +197,7 @@ class LLMInterfaceOpenAI:
             img_msg = [
                 {
                     'type': 'text',
-                    'text': "This is my current view of my environment"
+                    'text': "This is the current view from the robots perspective."
                 },
                 {
                     'type': 'image_url',

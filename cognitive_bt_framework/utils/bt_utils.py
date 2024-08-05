@@ -155,7 +155,13 @@ class Action(Node):
 
         # Logic to execute the action
         print(f"Executing action: {self.name}")
-        return *interface.execute_actions([f"{self.name} {self.target}"], memory), self.to_xml()# Modify and return the new state
+        ret = interface.execute_actions([f"{self.name} {self.target}"], memory)
+        if not ret[0]:
+            print(f"Action {self.name} {self.target} failed to execute")
+            if 'visibility' in ret[1].lower():
+                ret = list(ret)
+                ret[1] += f' Try search actions like <Action name=scannroom, target="{self.target}"/>'
+        return *ret, self.to_xml()# Modify and return the new state
 
     def to_xml(self):
         return f'<Action name="{self.name}" target="{self.target}"/>'
@@ -173,6 +179,8 @@ class Condition(Node):
     def execute(self, state, interface, memory):
         # Evaluate the Conditionagainst the state
         success, msg = interface.check_condition(self.name, self.target, self.recipient, memory, value = self.value)
+        if not success:
+            print(f'Condition {self.name}, {self.target}, value={self.value} returned FALSE')
         if 'These objects satisfy the condition' in msg:
             msg = f"{self.name} is FALSE for object {self.target}. " + msg
         return success, msg, self.to_xml()
@@ -238,7 +246,9 @@ def parse_node(element, actions, conditions):
     xml_str = ET.tostring(element)
     if node_type == "Action":
         target = element.get('target', None)
-        recipient = element.get('target', None)
+        recipient = element.get('recipient', None)
+        receptacle = element.get('receptacle', None)
+
         if target is None and element.get('name') not in actions:
             target = "TARGET MISSING"
             raise Exception(f"ERROR: Failed to parse <{node_type.lower()} name={element.get('name')} target={target}> DUE TO MISSING TARGET")
@@ -247,6 +257,8 @@ def parse_node(element, actions, conditions):
         if element.get('name').lower() in ['put', 'putin']:
             if recipient is not None:
                 target = recipient
+            if receptacle is not None:
+                target = receptacle
         node = Action(element.get('name'), target, xml_str)
         return node
     elif node_type == "Condition":

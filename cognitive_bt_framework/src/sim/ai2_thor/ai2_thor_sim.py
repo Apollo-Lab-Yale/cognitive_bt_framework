@@ -174,6 +174,8 @@ class AI2ThorSimEnv:
         return self.controller.step("LookDown", degrees=degrees)
 
     def move_forward(self, meters=1):
+        if type(meters) != int and type(meters) != float:
+            meters = 1
         return self.controller.step("MoveAhead", moveMagnitude=meters)
 
     def move_back(self, meters=0.25):
@@ -212,11 +214,15 @@ class AI2ThorSimEnv:
         )
 
     def grab_object(self, object):
-        assert object["distance"] <= CLOSE_DISTANCE
+        if object["distance"] > CLOSE_DISTANCE:
+            ret = Event()
+            ret.metadata['lastActionSuccess'] = False
+            ret.metadata['errorMessage'] = f'Failed to grab object {object["objectId"]}, agent is too far away navigate closer to interact.'
         if object['isPickedUp']:
             ret = Event()
             ret.metadata['lastActionSuccess'] = True
             ret.metadata['errorMessage'] = ""
+            print(f'Already holding {object["name"]}')
             return ret
 
         ret =  self.controller.step("PickupObject",
@@ -264,9 +270,17 @@ class AI2ThorSimEnv:
         positions = self.get_valid_positions()
         print('navigate to object')
         print(type(object))
-        teleport_pose = find_closest_position(object["position"], object["rotation"], positions, 0.8, facing=False)
+        teleport_pose = None
+        for i in range(50):
+            teleport_pose = find_closest_position(object["position"], object["rotation"], positions, 2, facing=False)
+            if teleport_pose is not None:
+                break
         # teleport_pose = np.random.choice(positions)
-        assert teleport_pose is not None
+        if teleport_pose is None:
+            evt = Event()
+            evt.metadata['lastActionSuccess'] = False
+            evt.metadata['errorMessage'] = f"Failed to navigate to {object['name'].lower()} to interact."
+            return evt
         event = self.controller.step(
             action="Teleport",
             position=teleport_pose,
@@ -321,7 +335,7 @@ class AI2ThorSimEnv:
         img = base64.b64encode(frame.tobytes()).decode('utf-8')
         images = [img]
         states = [self.get_state()]
-        for i in range(num_images):
+        for i in range(num_images + 1):
             evt = self.turn_left(degrees=int(rotation))
             time.sleep(pause_time)
             self.done()
@@ -349,6 +363,11 @@ class AI2ThorSimEnv:
             fail_event.metadata['lastActionSuccess'] = False
             fail_event.metadata['errorMessage'] = f"Not close enough to {object['name']} to switch object on.. Navigate to object."
             return fail_event
+        if object['isToggled']:
+            evt = Event()
+            evt.metadata['lastActionSuccess'] = True
+            evt.metadata['errorMessage'] = ''
+            return evt
         return self.controller.step(
             action="ToggleObjectOn",
             objectId=object["objectId"],
@@ -499,7 +518,7 @@ class AI2ThorSimEnv:
         if "isclose" in cond.lower():
             isClose = object_state is not None and object_state['distance'] < CLOSE_DISTANCE
             msg = f"isClose {object_state['name'].lower()} is {isClose}"
-            return isClose, ""
+            return isClose, msg
         if "isontop" in cond.lower() or "isinside" in cond.lower():
             if recipient is None:
                 return False, (f"I failed to check {cond} target={target} because recipient is None. please provide a "
@@ -706,7 +725,11 @@ class AI2ThorSimEnv:
             fridge = [item for item in state['objects'] if 'fridge' in item['name'].lower()][0]
             return all(food in fridge['receptacleObjectIds'] for food in foods)
         if goal == 'coffee':
-            return any([obj['fillLiquid'] == 'coffee' for obj in state["objects"] if 'mug' in obj['name'].lower()])
+            success = any([obj['fillLiquid'] == 'coffee' for obj in state["objects"] if 'mug' in obj['name'].lower()])
+            if success:
+                cup = [obj for obj in state['objects'] if 'mug' in obj['name'].lower() and obj['fillLiquid'] == 'coffee']
+                success = success and any(any('table' in parent.lower() for parent in obj['parentReceptacles']) for obj in cup)
+            return
         if goal == 'water_cup':
             return any([obj['fillLiquid'] == 'water' for obj in state["objects"] if 'cup' in obj['name'].lower()])
         if goal == 'apple':
