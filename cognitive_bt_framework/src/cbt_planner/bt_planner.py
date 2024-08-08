@@ -1,6 +1,6 @@
 import sqlite3
 from cachetools import LRUCache
-from cognitive_bt_framework.src.llm_interface.llm_interface_openai import LLMInterface
+from cognitive_bt_framework.src.llm_interface.llm_interface_openai import LLMInterfaceOpenAI
 from cognitive_bt_framework.utils.db_utils import setup_database, add_behavior_tree, store_feedback
 import os
 

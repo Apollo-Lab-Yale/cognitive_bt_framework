@@ -1,5 +1,5 @@
 import xml.etree.ElementTree as ET
-from cognitive_bt_framework.src.sim.ai2_thor.utils import AI2THOR_NO_TARGET
+from cognitive_bt_framework.src.sim.ai2_thor.utils import AI2THOR_NO_TARGET, AI2THOR_ACTIONS, AI2THOR_PREDICATES
 
 BASE_EXAMPLE = '''
 <?xml version="1.0"?>
@@ -130,6 +130,8 @@ FORMAT_EXAMPLE = '''
 
 '''
 
+
+
 class Node:
     def __init__(self, name):
         self.name = name
@@ -142,61 +144,77 @@ class Node:
         raise NotImplementedError("This method should be overridden by subclasses")
 
 class Action(Node):
-    def __init__(self, name, target):
+    def __init__(self, name, target, xml_str):
         self.name = name
 
         self.target = target
         if target is not None:
-            self.target = self.target.replace('_', '')
+            self.target = self.target#.replace('_', '')
 
     def execute(self, state, interface, memory):
 
         # Logic to execute the action
         print(f"Executing action: {self.name}")
-        return *interface.execute_actions([f"{self.name} {self.target}"], memory), self.to_xml()# Modify and return the new state
+        ret = interface.execute_actions([f"{self.name} {self.target}"], memory)
+        if not ret[0]:
+            print(f"Action {self.name} {self.target} failed to execute")
+            if 'visibility' in ret[1].lower():
+                ret = list(ret)
+                ret[1] += f' Try search actions like <Action name=scannroom, target="{self.target}"/>'
+        return *ret, self.to_xml()# Modify and return the new state
 
     def to_xml(self):
         return f'<Action name="{self.name}" target="{self.target}"/>'
 
 class Condition(Node):
-    def __init__(self, name, target):
+    def __init__(self, name, target, recipient, value, xml_str):
         super().__init__(name)
         self.target = target
+        self.recipient = recipient
+        self.value = value
         if target is not None:
-            self.target = self.target.replace('_', '')
+            self.target = self.target#.replace('_', '')
+        self.xml_str = xml_str
 
     def execute(self, state, interface, memory):
         # Evaluate the Conditionagainst the state
-        success, msg = interface.check_condition(self.name, self.target, memory)
+        print(f'Checking {self.to_xml()}')
+        success, msg = interface.check_condition(self.name, self.target, self.recipient, memory, value = self.value)
+
+        if not success:
+            print(f'Condition {self.name}, {self.target}, value={self.value} returned FALSE')
         if 'These objects satisfy the condition' in msg:
             msg = f"{self.name} is FALSE for object {self.target}. " + msg
         return success, msg, self.to_xml()
 
     def to_xml(self):
-        return f'<Condition name="{self.name}" target="{self.target}"/>'
+        return self.xml_str
 
 class Selector(Node):
-    def __init__(self, name):
+    def __init__(self, name, xml_str):
         super().__init__(name)
         self.failures = []
+        self.xml_str = xml_str
 
     def execute(self, state, interface, memory):
         for child in self.children:
-            success, msg, _ = child.execute(state, interface, memory)
+            success, msg, child_xml = child.execute(state, interface, memory)
             if success:
                 return success, msg, ""
-            self.failures.append(msg)
+            msg = msg if type(child).__name__ in ["Selector", "Sequence"] else f"Selector exited due to failure: {msg}"
+            bt = child_xml if type(child).__name__ in ["Selector", "Sequence"] else self.to_xml()
         print(f"{self.failures}")
-        return False, f"{self.failures[-1]}", self.to_xml()
+        return False, msg, bt
 
     def to_xml(self):
-        children_xml = "\n".join(child.to_xml() for child in self.children)
-        return f'<Selector name="{self.name}">{children_xml}</Selector>'
+        # children_xml = "\n".join(child.to_xml() for child in self.children)
+        return self.xml_str
 
 
 class Sequence(Node):
-    def __init__(self, name):
+    def __init__(self, name, xml_str):
         super().__init__(name)
+        self.xml_str = xml_str
 
     def execute(self, state, interface, memory):
         for child in self.children:
@@ -206,12 +224,17 @@ class Sequence(Node):
                 ret_xml = child_xml
                 if type(child) not in [Sequence, Condition]:
                     ret_xml = self.to_xml()
-                return False, f"{msg}.", self.to_xml()
+                full_msg = f"""Sequence failed to execute all children due to failure: {msg}
+                                If you expected further execution after this condition check consider replacing
+                                sequence with selector node"""
+                msg = msg if type(child).__name__ in ["Selector", "Sequence"] else full_msg
+                bt = child_xml if type(child).__name__ in ["Selector", "Sequence"] else self.to_xml()
+                return False, msg, bt
         return True, "", ""
 
     def to_xml(self):
-        children_xml = "\n".join(child.to_xml() for child in self.children)
-        return f'<Sequence name="{self.name}">{children_xml}</Sequence>'
+        # children_xml = "\n".join(child.to_xml() for child in self.children)
+        return self.xml_str
 
 
 
@@ -220,39 +243,202 @@ def parse_bt_xml(xml_content, actions, conditions):
     root = ET.fromstring(xml_content)
     return parse_node(root, actions, conditions)
 
-
-
-
 def parse_node(element, actions, conditions):
     node_type = element.tag.capitalize()
+    xml_str = ET.tostring(element)
     if node_type == "Action":
         target = element.get('target', None)
-        if target is None and element.get('name') not in AI2THOR_NO_TARGET:
+        recipient = element.get('recipient', None)
+        receptacle = element.get('receptacle', None)
+
+        if target is None and element.get('name') not in actions:
             target = "TARGET MISSING"
             raise Exception(f"ERROR: Failed to parse <{node_type.lower()} name={element.get('name')} target={target}> DUE TO MISSING TARGET")
-        if element.get('name') not in actions:
+        if not any(element.get('name') in action for action in actions):
             raise Exception(f"ERROR: {element.get('name')} is not a valid action.")
-        node = Action(element.get('name'), element.get('target'))
+        if element.get('name').lower() in ['put', 'putin']:
+            if recipient is not None:
+                target = recipient
+            if receptacle is not None:
+                target = receptacle
+        node = Action(element.get('name'), target, xml_str)
         return node
     elif node_type == "Condition":
         target = element.get('target', None)
+        recipient = element.get('recipient', None)
+        value = element.get('value', '1') == '1'
         if target is None:
             target = "TARGET MISSING"
             raise Exception(f"ERROR: Failed to parse <{node_type.lower()} name={element.get('name')} target={target}> DUE TO MISSING TARGET")
         if element.get('name') not in conditions:
             raise Exception(f"ERROR: {element.get('name')} is not a valid condition.")
-        return Condition(element.get('name'), target)
+
+        return Condition(element.get('name'), target, recipient, value, xml_str)
     elif node_type in ["Selector", "Sequence"]:
         node_class = globals()[node_type]
-        node = node_class(element.get('name'))
+        node = node_class(element.get('name'), xml_str)
         for child_elem in element:
             child = parse_node(child_elem, actions, conditions)
             node.children.append(child)
         return node
     elif node_type == "Root":
-        node = Sequence('root')
+        node = Selector('root', xml_str)
         for child_elem in element:
             child = parse_node(child_elem, actions, conditions)
             node.children.append(child)
         return node
     raise ValueError(f"Unsupported node type: {node_type}")
+
+
+DOMAIN_DEF = """
+(define (domain virtual-home)
+(:requirements :strips :typing :equality :disjunctive-preconditions :conditional-effects)
+(:types Character
+      Object
+      Room
+      Surface - Object
+      Container - Object
+)
+
+  (:predicates
+    ; States
+    (isOpen ?obj - Object)
+    (not isOpen ?obj - Object)
+    (isToggled ?obj)
+    (not isToggled ?obj - Object)
+    (breakable ?obj - Object)
+    (openable ?obj - Object)
+    (pickupable ?obj - Object)
+    (sittable ?obj - Object)
+    (lieable ?obj - Object)
+    (has_paper ?obj)
+    (isFilledWithLiquid ?obj)
+    (has_plug ?obj)
+    (lookable ?obj - Object)
+    (readable ?obj - Object)
+    (eatable ?obj - Object)
+    (clothes ?obj - Object)
+    (containers ?obj - Object)
+    (cuttable ?obj - Object)
+    (drinkable ?obj - Object)
+    (between ?obj1 - Object ?obj2 - Object)
+    (hangable ?obj - Object)
+    (surfaces ?obj - Object)
+    (cover_object ?obj - Object)
+    (cream ?obj - Object)
+    (pourable ?obj - Object)
+    (moveable ?obj - Object)
+    (toggleable ?obj - Object)
+    (recipient ?obj - Object)
+    (receptacle ?obj - Object)
+    (pickupable ?obj - Object)
+    (isDirty ?obj)
+    (holds ?obj)
+    (water_source ?obj)
+    (cleaning_target ?obj)
+    (isOnTop ?obj1 - Object ?obj2 - Object)
+    (isInside ?obj1 ?obj2)
+    (facing ?obj1 - Object ?obj2 - Object)
+    (isPickedUp ?obj - Object)
+    (isClose ?object)
+    (has_switch ?object)
+    (visible ?object)
+    (cookable ?cont)
+    (isCooked ?obj ?cont)
+    (inRoom ?room)
+    (sliceable ?obj)
+    (isSliced ?obj)
+  )
+
+  ; Actions
+    (:action walk_to_object
+        :parameters ( ?obj1 - Object)
+        :precondition (and  (visible ?obj1))
+        :effect (and (isClose ?character ?obj1)
+                    (forall (?obj - object) (when (not(isClose ?obj1 ?obj)) (not (visible ?obj))))
+                    (visible ?obj1))
+             )
+
+    (:action walk_to_room
+        :parameters (?character - Character ?room - Room)
+        :precondition 
+        :effect (and
+                    (forall (?r - Room)
+                        (when (inRoom ?character ?r) (not(inRoom ?character ?r))))
+                   (inRoom ?character ?room)
+                   (isClose  ?room)
+                   (forall (?obj - Object)
+                            (when (not(isInside ?obj ?room)) (not (visible ?obj))))
+                 )
+                )
+
+    (:action grab
+        :parameters (  ?object - Object)
+        :precondition (and (pickupable ?object) (isClose  ?object) (visible ?object) (not (hands_full )))
+        :effect (and (isPickedUp  ?object)
+                      (hands_full )
+                      (forall (?cont - Object)(when (isInside ?object ?cont) (not (isInside ?object ?cont))))
+                )
+        )
+
+    (:action switchon
+        :parameters (  ?object - Object)
+        :precondition (and (has_switch ?object) (not isToggled ?object) (isClose  ?object) (visible ?object) (not (hands_full )))
+        :effect (isToggled ?object))
+
+    (:action switchoff
+        :parameters (  ?object - Object)
+        :precondition (and (has_switch ?object) (isToggled ?object) (isClose  ?object) (visible ?object) (not (hands_full )))
+        :effect (not isToggled ?object))
+
+    (:action put
+        :parameters (  ?object - Object ?target - Object)
+        :precondition (and (isPickedUp  ?object) (isClose  ?target))
+        :effect (and (not (isPickedUp  ?object)) (isOnTop ?object ?target) (not (hands_full ))) )
+
+
+    (:action scanroom
+        :parameters (  ?obj - Object ?room - Room)
+        :precondition (and (inRoom  ?room))
+        :effect (and
+
+            (when (isInside ?obj ?room) (visible ?obj))
+        )
+    )
+
+
+    (:action open
+        :parameters ( 
+                     ?container)
+        :precondition (and (isClose  ?container)
+                        (not isOpen ?container)
+                        (visible ?container)
+                        (not(isToggled ?container))
+                       )
+        :effect (and (isOpen ?container)
+                    (forall (?obj - Object)
+                        (when (isInside ?obj ?container)
+                            (visible ?obj)
+                        )
+                    )
+                    (not (not isOpen ?container))
+                )
+     )
+
+    (:action isClose
+        :parameters ( 
+                     ?container)
+        :precondition (and (isClose ?container) (isOpen ?container) (visible ?container))
+        :effect (and (not isOpen ?container)
+                    (not (isOpen ?container))
+                    (forall (?obj - Object)
+                                (when (isInside ?obj ?container)
+                                    (not(visible ?obj))
+                                )
+                    )
+         )
+    )
+)
+
+
+"""

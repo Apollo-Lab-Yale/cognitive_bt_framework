@@ -7,6 +7,7 @@ NO_VALID_PUT = "No valid positions to place object found"
 PUT_COLLISION = "another object's collision is blocking held object from being placed"
 
 AI2THOR_ACTIONS = [
+    'break',
     'walk_to_room',
     'walk_to_object',
     'grab',
@@ -27,6 +28,31 @@ AI2THOR_ACTIONS = [
     'lookdown',
     'scanroom',
     'wash'
+]
+
+AI2THOR_ACTIONS_ANNOTATED = [
+    'break',
+    'walk_to_room',
+    'walk_to_object',
+    'grab',
+    'turnleft',
+    'turnright',
+    'put <receptical> (attempts to place object in agents hand onto/into target receptical)',
+    'open',
+    'close',
+    'cook',
+    'switchon',
+    'switchoff',
+    'slice',
+    'cut',
+    'moveforward',
+    'movebackward',
+    'turnaround',
+    'lookup',
+    'lookdown',
+    'scanroom',
+    'wash',
+    'putin <reciptical> (attempts to place object in agents hand onto/into target receptical)'
 ]
 
 AI2THOR_NO_TARGET = [
@@ -64,7 +90,43 @@ AI2THOR_PREDICATES = [
     'pickupable',
     'isPickedUp',
     "inRoom",
-    'moveable'
+    'moveable',
+    'isOnTop',
+    'isInside',
+    'isClose',
+    "handsFull"
+]
+
+AI2THOR_PREDICATES_ANNOTATED = [
+    'visible',
+    'isInteractable',
+    'receptacle (indicates that an object can have other objects placed into/onto it)',
+    'toggleable',
+    'isToggled',
+    'breakable',
+    'isBroken',
+    'canFillWithLiquid',
+    'isFilledWithLiquid',
+    'dirtyable',
+    'isDirty',
+    'canBeUsedUp',
+    'isUsedUp',
+    'cookable',
+    'isCooked',
+    'isHeatSource',
+    'isColdSource',
+    'sliceable',
+    'isSliced',
+    'openable',
+    'isOpen (indicates that an object with a door is open such as a cabinet)',
+    'pickupable',
+    'isPickedUp',
+    "inRoom",
+    'moveable',
+    "handsFull <obj>",
+    'isOnTop <obj1> <obj2> (indicates object1 is on top of object2)',
+    'isInside <obj1> <obj2> (indicates object1 is inside object2)',
+    'isClose <obj1> (indicates obj1 is close to the robot and can be interacted with)'
 ]
 
 AI2THOR_TO_VHOME = {
@@ -83,7 +145,7 @@ AI2THOR_TO_VHOME = {
     "fillLiquid": "FILLED"
 }
 
-CLOSE_DISTANCE = 1.75
+CLOSE_DISTANCE = 2
 
 class Event:
     def __init__(self):
@@ -111,12 +173,12 @@ def get_predicates(objects):
     for object in objects:
         for pred in AI2THOR_TO_VHOME.keys():
             if object[pred]:
-                predicates.append(f"{AI2THOR_TO_VHOME[pred]} {object['objectId']}")
+                predicates.append(f"{AI2THOR_TO_VHOME[pred]} {object['name']}")
         if object['distance'] < CLOSE_DISTANCE:
-            predicates.append(f"close {object['objectId']} character_1")
+            predicates.append(f"close {object['name']} character_1")
         if object['parentReceptacles'] is not None:
             for container in object["parentReceptacles"]:
-                predicates += [f"IN {object['objectId']} {container}", f"ON {object['objectId']} {container}"]
+                predicates += [f"IN {object['name']} {container}", f"ON {object['name']} {container}"]
     return predicates
 
 def is_in_room(point, polygon):
@@ -185,35 +247,49 @@ def is_facing(reference_position, reference_rotation, target_position):
     # Check if the reference is facing the target (dot product close to 1)
     return dot_product > .25  # Adjust this threshold as needed
 
-def find_closest_position(point, orientation, positions, radius = .5, facing=False):
-    """
-    Find the closest position to a reference point.
+# def find_closest_position(point, orientation, positions, radius = .5, facing=False):
+#     """
+#     Find the closest position to a reference point.
+#
+#     Args:
+#     point -- A dict {'x': x_value, 'y': y_value, 'z': z_value} representing the reference point.
+#     positions -- A list of dicts [{'x': x_value, 'y': y_value, 'z': z_value}, ...] representing the valid positions.
+#
+#     Returns:
+#     A dict representing the closest position.
+#     """
+#
+#     def distance(p1, p2):
+#         """Calculate Euclidean distance ignoring y coordinate."""
+#         return ((p1['x'] - p2['x']) ** 2 + (p1['z'] - p2['z']) ** 2) ** 0.5
+#
+#     min_distance = float('inf')
+#     closest_position = None
+#
+#     for pos in positions:
+#         dist = distance(point, pos)
+#         if min_distance > dist >= radius:
+#             if facing and not is_facing(point, orientation, pos):
+#                 continue
+#             min_distance = dist
+#             closest_position = pos
+#
+#     return closest_position
 
-    Args:
-    point -- A dict {'x': x_value, 'y': y_value, 'z': z_value} representing the reference point.
-    positions -- A list of dicts [{'x': x_value, 'y': y_value, 'z': z_value}, ...] representing the valid positions.
-
-    Returns:
-    A dict representing the closest position.
-    """
-
-    def distance(p1, p2):
-        """Calculate Euclidean distance ignoring y coordinate."""
-        return ((p1['x'] - p2['x']) ** 2 + (p1['z'] - p2['z']) ** 2) ** 0.5
-
-    min_distance = float('inf')
+def find_closest_position(object_position, object_orientation, positions, interaction_distance=1.0, facing=True):
     closest_position = None
+    min_distance = np.inf
 
     for pos in positions:
-        dist = distance(point, pos)
-        if min_distance > dist >= radius:
-            if facing and not is_facing(point, orientation, pos):
-                continue
-            min_distance = dist
+        distance = np.linalg.norm(np.array([pos['x'], pos['z']]) - np.array([object_position['x'], object_position['z']]))
+        if distance < min_distance and distance <= interaction_distance and distance>=0.45:
             closest_position = pos
+            min_distance = distance
+
+    if facing and closest_position is not None:
+        closest_position['rotation'] = get_yaw_angle(closest_position, object_orientation, object_position)
 
     return closest_position
-
 
 def get_top_down_frame(sim):
     # Setup the top-down camera
@@ -274,8 +350,8 @@ def get_object_properties_and_states(state):
         if obj["receptacleObjectIds"] is not None:
             for cont_obj in obj['receptacleObjectIds']:
                 object_properties_states["ON_TOP"][(cont_obj, obj["objectId"])] = obj
-                object_properties_states["IN"][(cont_obj, obj['objectId'])] = obj
-                object_properties_states["INSIDE"][(cont_obj, obj['objectId'])] = obj
+                object_properties_states["IN"][(cont_obj, obj['name'])] = obj
+                object_properties_states["INSIDE"][(cont_obj, obj['name'])] = obj
 
 
     return object_properties_states
@@ -305,19 +381,32 @@ def get_world_predicate_set(graph, custom_preds=()):
 #
 #     return angle
 
-def get_yaw_angle(pose1, orientation, pose2):
-    x1, y1 = pose1['x'], pose1['z']
-    x2, y2 = pose2['x'], pose2['z']
-    # Calculate the angle from the first point to the second point
-    angle_to_second_point = math.degrees(math.atan2( x2 - x1, y2 - y1))
+# def get_yaw_angle(pose1, orientation, pose2):
+#     x1, y1 = pose1['x'], pose1['z']
+#     x2, y2 = pose2['x'], pose2['z']
+#     # Calculate the angle from the first point to the second point
+#     angle_to_second_point = math.degrees(math.atan2( x2 - x1, y2 - y1))
+#
+#     # Adjust for the orientation of the first point
+#     relative_angle = angle_to_second_point - orientation['y']
+#
+#     # Normalize the angle to be between 0 and 360 degrees
+#     relative_angle = relative_angle % 360
+#
+#     return relative_angle
 
-    # Adjust for the orientation of the first point
-    relative_angle = angle_to_second_point - orientation['y']
+# def get_yaw_angle(agent_position, agent_orientation, object_position):
+#     dx = object_position['x'] - agent_position['x']
+#     dz = object_position['z'] - agent_position['z']
+#     yaw = np.degrees(np.arctan2(dz, dx))
+#     return (yaw - agent_orientation['y']) % 360
 
-    # Normalize the angle to be between 0 and 360 degrees
-    relative_angle = relative_angle % 360
 
-    return relative_angle
+def get_yaw_angle(agent_position, agent_orientation, object_position):
+    dx = object_position['x'] - agent_position['x']
+    dz = object_position['z'] - agent_position['z']
+    yaw = np.degrees(np.arctan2(dz, dx))
+    return (yaw - agent_orientation['y']) % 360
 
 def get_room_polygon(scene, room):
     try:

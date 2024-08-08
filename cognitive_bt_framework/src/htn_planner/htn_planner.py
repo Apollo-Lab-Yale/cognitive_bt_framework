@@ -1,5 +1,6 @@
-from cognitive_bt_framework.src.llm_interface.llm_interface_openai import LLMInterface
+from cognitive_bt_framework.src.llm_interface.llm_interface_openai import LLMInterfaceOpenAI
 from cognitive_bt_framework.utils.htn_db_utils import setup_database
+from cognitive_bt_framework.utils.logic_utils import cosine_similarity
 from cachetools import LRUCache
 
 import sqlite3
@@ -10,8 +11,9 @@ from transformers import AutoTokenizer, AutoModel
 import torch
 
 class HTNPlanner:
-    def __init__(self, llm_interface=None, db_path='./task_decomposition.db'):
+    def __init__(self, embedding_fn, llm_interface=None, db_path='./behavior_tree.db'):
         self.llm_interface = llm_interface
+        self.get_embedding = embedding_fn
         self.db_path = db_path
         self.cache = LRUCache(maxsize=100)  # Adjust maxsize based on expected workload
         if not os.path.exists(self.db_path):
@@ -42,7 +44,7 @@ class HTNPlanner:
             return None
         return best_match
 
-    def decompose_task(self, task_name):
+    def decompose_task(self, task_name, task_embedding):
         with self.connect_db() as conn:
             cursor = conn.cursor()
 
@@ -157,12 +159,9 @@ if __name__ == "__main__":
     # Assuming `llm_interface` is an instance of `LLMInterface` set up as previously described
     llm_interface = LLMInterface()
     planner = HTNPlanner(llm_interface)
-
     # Decompose a task using the LLM (assuming the LLM interface can handle this task)
-
-    print(planner.llm_interface.get_task_id('fill a cup with water from the sink'))
-    print(planner.llm_interface.get_task_id('get a cup of water'))
+    # print(planner.llm_interface.get_task_id('fill a cup with water from the sink'))
+    # print(planner.llm_interface.get_task_id('get a cup of water'))
     # print()
-    # print(planner.decompose_task("clean the kitchen"))
-    #
-    # print(planner.find_closest_task("organize an event to help build friendships for the team"))
+    print(planner.decompose_task("CleanKitchen"))
+
