@@ -244,7 +244,7 @@ class AI2ThorSimEnv:
         return ret
 
     def place_object(self, target):
-        if target['distance'] > CLOSE_DISTANCE:
+        if target['distance'] > CLOSE_DISTANCE and 'counter' not in target['name']:
             fail_event = Event()
             fail_event.metadata['lastActionSuccess'] = False
             fail_event.metadata['errorMessage'] = (f"Not close enough to {target['name'].lower()} to put the heald object. "
@@ -254,7 +254,7 @@ class AI2ThorSimEnv:
             action="PutObject",
             objectId=target["objectId"],
             forceAction=True,
-            placeStationary=False
+            placeStationary=True
         )
 
     def get_interactable_poses(self, object):
@@ -272,7 +272,7 @@ class AI2ThorSimEnv:
         print(type(object))
         teleport_pose = None
         for i in range(50):
-            teleport_pose = find_closest_position(object["position"], object["rotation"], positions, 2, facing=False)
+            teleport_pose = find_closest_position(object["position"], object["rotation"], positions, 1.5, facing=False)
             if teleport_pose is not None:
                 break
         # teleport_pose = np.random.choice(positions)
@@ -429,7 +429,7 @@ class AI2ThorSimEnv:
 
     def handle_scan_room(self, goal_obj, memory, pause_time = 0.5):
         print(f"scanning for object {goal_obj}")
-        action = random.choice([self.turn_left, self.turn_right])
+        action = random.choice([self.turn_left, self.turn_left, self.turn_right])
         for j in range(3):
             fn, fn_inv = None, None
             if j > 0:
@@ -457,7 +457,7 @@ class AI2ThorSimEnv:
             if j > 0:
                 fn_inv(45)
         return False, (f"Failed to find object {goal_obj} during scan_room, it may not be visible from my"
-                       f" current position try movement actions or search within closed containing objects.")
+                       f" current position try movement actions or add sequences to search likely containers that {goal_obj} might be inside of.")
 
     def translate_action_for_sim(self, action, state):
         return [action]
@@ -503,15 +503,17 @@ class AI2ThorSimEnv:
             return False, "There is no object named {} in this env to check condition.".format(recipient)
         # Find specific target object
         object_state = next((obj for obj in current_state['objects'] if target in obj['name'].lower()), None)
-
         if object_state is None:
-            # Fallback to memory
-            object_state, _ = memory.retrieve_object_state(target)
+            return False, f'Cannot check condition {cond} for {target} because the state of {target} is unknown. Try search actions like <action name="scanroom" target={target}/>'
+        # if object_state is None:
+        #     # Fallback to memory
+        #     object_state, _ = memory.retrieve_object_state(target)
         if "inroom" in cond.lower():
             return True, ""
 
         if "visible" in cond.lower():
             isVisible = object_state is not None or target.lower() in self.room_names
+            print(object_state)
             msg = "" if isVisible else f"{target} is not currently visible./>."
 
             return isVisible, msg
@@ -604,14 +606,6 @@ class AI2ThorSimEnv:
                 result = self.action_fn_from_str[act]()
                 continue
 
-            if object_state is None:
-                # Fallback to memory
-                object_state, _ = memory.retrieve_object_state(target)
-
-            if object_state is None:
-                return False, (f"Unable to locate {target}. Consider search actions like 'scanroom {target}'. "
-                               f"There also may not be a {target} in my environment, consider also replacing {target} with a similar known object.")
-
             try:
                 result = self.action_fn_from_str[act](object_state)
             except Exception as e:
@@ -624,6 +618,7 @@ class AI2ThorSimEnv:
                 if len(error_message) > 50:
                     error_message = error_message[:error_message.find('trace:')]
                 return False, f"Action <action name={act} target={target}> failed due to: {error_message}"
+        self.object_names = self.get_object_names()
         return True, "Actions executed successfully."
 
     def get_world_predicate_set(self, graph, custom_preds=()):

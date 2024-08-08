@@ -145,7 +145,7 @@ AI2THOR_TO_VHOME = {
     "fillLiquid": "FILLED"
 }
 
-CLOSE_DISTANCE = 1.75
+CLOSE_DISTANCE = 2
 
 class Event:
     def __init__(self):
@@ -278,11 +278,11 @@ def is_facing(reference_position, reference_rotation, target_position):
 
 def find_closest_position(object_position, object_orientation, positions, interaction_distance=1.0, facing=True):
     closest_position = None
-    min_distance = float('inf')
+    min_distance = np.inf
 
     for pos in positions:
         distance = np.linalg.norm(np.array([pos['x'], pos['z']]) - np.array([object_position['x'], object_position['z']]))
-        if distance < min_distance and distance <= interaction_distance:
+        if distance < min_distance and distance <= interaction_distance and distance>=0.45:
             closest_position = pos
             min_distance = distance
 

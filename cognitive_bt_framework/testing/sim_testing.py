@@ -7,3 +7,4 @@ sim = AI2ThorSimEnv()
 
 
 print(sim.get_graph()['objects'][0])
+input()

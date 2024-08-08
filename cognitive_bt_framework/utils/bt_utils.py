@@ -178,7 +178,9 @@ class Condition(Node):
 
     def execute(self, state, interface, memory):
         # Evaluate the Conditionagainst the state
+        print(f'Checking {self.to_xml()}')
         success, msg = interface.check_condition(self.name, self.target, self.recipient, memory, value = self.value)
+
         if not success:
             print(f'Condition {self.name}, {self.target}, value={self.value} returned FALSE')
         if 'These objects satisfy the condition' in msg:
@@ -202,7 +204,7 @@ class Selector(Node):
             msg = msg if type(child).__name__ in ["Selector", "Sequence"] else f"Selector exited due to failure: {msg}"
             bt = child_xml if type(child).__name__ in ["Selector", "Sequence"] else self.to_xml()
         print(f"{self.failures}")
-        return False, f"{self.failures}", bt
+        return False, msg, bt
 
     def to_xml(self):
         # children_xml = "\n".join(child.to_xml() for child in self.children)
@@ -280,7 +282,7 @@ def parse_node(element, actions, conditions):
             node.children.append(child)
         return node
     elif node_type == "Root":
-        node = Sequence('root', xml_str)
+        node = Selector('root', xml_str)
         for child_elem in element:
             child = parse_node(child_elem, actions, conditions)
             node.children.append(child)

@@ -4,7 +4,7 @@ from cognitive_bt_framework.utils import setup_openai, get_openai_key, parse_llm
 from cognitive_bt_framework.utils.bt_utils import DOMAIN_DEF
 from ratelimit import limits, sleep_and_retry
 from cognitive_bt_framework.src.sim.ai2_thor.utils import AI2THOR_PREDICATES_ANNOTATED
-
+import pprint
 class LLMInterfaceOpenAI:
     def __init__(self, model_name="gpt-4o"):
         """
@@ -80,19 +80,19 @@ class LLMInterfaceOpenAI:
                     }]
         for i in range(len(context)):
             image = context[i]
-            state = states[i]
+            # state = states[i]
             img_msg = {
                 "type": "image_url",
                 "image_url": {
                     "url": f"data:image/png;base64,{image}"
                 }
             }
-            state_msg = {
-                "type": "text",
-                "text": f"The environmental state associated with image {i} is: {state}"
-            }
+            # state_msg = {
+            #     "type": "text",
+            #     "text": f"The environmental state associated with image {i} is: {state}"
+            # }
             context_data.append(img_msg)
-            context_data.append(state_msg)
+            # context_data.append(state_msg)
         context_msg = {
             "role": "user",
             "content": context_data
@@ -111,6 +111,11 @@ class LLMInterfaceOpenAI:
         The following subgoals have already been completed:
         {completed_subtasks}
         ''' if len(completed_subtasks) > 0 else ""
+        '''
+         **Domain**
+                    the domain is defined in pddl as follows:
+                    {DOMAIN_DEF}
+        '''
         system_message = f'''
                     You are going to be tasked with creating a behavior tree in XML format for a robot to execute a specific task. Follow these rules carefully:
                     **Actions**: Use only the actions from this list:
@@ -123,9 +128,7 @@ class LLMInterfaceOpenAI:
                     each condition tag should contain name, target, and value members. where name is the condition being checked and target is the target of the condition
                     and value indicates whether the condition should be true or false and should only be a value in [0, 1]
                     {completed_goals_str}
-                    **Domain**
-                    the domain is defined in pddl as follows:
-                    {DOMAIN_DEF}
+                   ---
                     **Behavior Tree Structure**:
                     - Use <Sequence> tags to execute all child actions or conditions in order until one fails or returns False.
                     - Use <Selector> tags to execute each child action or condition in order until one succeeds or returns True.
@@ -207,6 +210,11 @@ class LLMInterfaceOpenAI:
                 }
             ]
         error_info = f"Error Category: {error_category}" if error_category else ""
+        '''
+        **Domain**
+            the domain is defined in pddl as follows:
+            {DOMAIN_DEF}
+        '''
         system_message = f'''
             Task attempted: "{task}"
             This is a subtask of: {big_task}
@@ -214,9 +222,7 @@ class LLMInterfaceOpenAI:
             The behavior tree provided for this task resulted in an error. 
             Sub-tree where the error occurred: {original_bt_xml}
             Associated feedback and error information: {feedback}. {error_info}
-            **Domain**
-            the domain is defined in pddl as follows:
-            {DOMAIN_DEF}
+            ----
             Please modify the behavior tree to address this failure, adhering to the following requirements:
             1. Valid actions for an <Action> tag: {actions}. No other actions are allowed, and each action should contain name and target members.
             where name is the action being performed and target is the target of the action.
@@ -272,6 +278,7 @@ class LLMInterfaceOpenAI:
         """
         # print(f"LLM PROMPT: {prompt}")
         try:
+            # pprint.pp(prompt)
             response = self.client.chat.completions.create(
                 model=self.model_name,
                 messages=prompt,
@@ -357,6 +364,8 @@ class LLMInterfaceOpenAI:
         prompt = self.generate_behavior_tree_refinement_prompt(big_task, task, actions, conditions, original_bt_xml,
                                                                user_feedback, known_objects, completed_subtasks,
                                                                example, context, complete_condition, image_context)
+        print(prompt)
+        print(f"$$$$$$$$$$$$$$ REFINEMENT PROMPT")
         refined_behavior_tree_xml = self.query_llm(prompt)
         print(f"Refined Behavior Tree: {refined_behavior_tree_xml}")
         for i in range(len(refined_behavior_tree_xml)):

@@ -57,7 +57,7 @@ class CognitiveBehaviorTreeFramework:
         self.conditions = conditions
         self.known_objects = []
         self.goal = None
-        self.max_actions = 20
+        self.max_actions = 5
 
     def get_embedding(self, text):
         if '_' in text:
@@ -173,7 +173,9 @@ class CognitiveBehaviorTreeFramework:
         ret = (True, "", bt_root.to_xml())
         prev_failure = None
         for i in range(self.max_actions):
-            if self.robot_interface.check_satisfied(complete_condition[0], memory=self.memory)[0]:
+            self.known_objects = set(self.robot_interface.get_object_names())
+            if (self.robot_interface.check_satisfied(complete_condition[0], memory=self.memory)[0] or
+                    self.robot_interface.check_goal(self.goal)):
                 print(f'{complete_condition} is satisfied')
                 return True, "", bt_root.to_xml()
             self.update_known_objects()
@@ -259,7 +261,7 @@ class CognitiveBehaviorTreeFramework:
         episode_id = self.memory.start_new_episode(task_name)
         itter = 0
         while not self.robot_interface.check_goal(self.goal):
-            itter+=1
+            itter += 1
             try:
                 context, states = self.robot_interface.get_context(3)
                 task_name, context = self.llm_interface.get_task_id(task_name, context, states)
@@ -283,17 +285,22 @@ class CognitiveBehaviorTreeFramework:
                 print(subtasks)
                 for subtask_name, details in subtasks.items():
                     subtask_conditions = details['conditions']
-                    if not self.robot_interface.validate_goal(details):
-                        return False
                     subtask_subtasks = details['subtasks']
 
-                    while not self.robot_interface.check_satisfied(subtask_conditions[0], memory=self.memory)[0]:
+                    # Skip the subtask if its condition is already satisfied
+                    if self.robot_interface.check_satisfied(subtask_conditions[0], memory=self.memory)[0]:
+                        print(f"Subtask {subtask_name} already completed.")
+                        completed_subtasks.append(subtask_name)
+                        continue
+
+                    if not self.robot_interface.validate_goal(details):
+                        return False
+
+                    while (not self.robot_interface.check_satisfied(subtask_conditions[0], memory=self.memory)[0] and not
+                           self.robot_interface.check_goal(self.goal)):
                         if self.robot_interface.check_goal(self.goal):
                             print('Success!')
                             return True
-                        if self.robot_interface.check_satisfied(subtask_conditions[0], memory=self.memory)[0]:
-                            completed_subtasks.append(subtask_name)
-                            break
 
                         try:
                             bt_root, bt_xml = self.load_or_generate_bt(
@@ -329,11 +336,13 @@ class CognitiveBehaviorTreeFramework:
                         self.robot_interface.check_satisfied(subtask_conditions[0], memory=self.memory)[0]:
                             msg = f"Execution of behavior tree ended in success but task {subtask_name} is NOT COMPLETED."
                         print(f"Failed to execute behavior tree due to {msg}.")
+
                         for i in range(4):
                             try:
-                                context_img = None#self.robot_interface.get_context(1)
+                                context_img = None  # self.robot_interface.get_context(1)
                                 new_root = self.refine_and_update_bt(
-                                    task_name, subtask_name, subtask_name, subtree_xml, msg, context, subtask_conditions,
+                                    task_name, subtask_name, subtask_name, subtree_xml, msg, context,
+                                    subtask_conditions,
                                     completed_subtasks, context_img
                                 )
                                 success, msg, subtree_xml = self.execute_behavior_tree(new_root, subtask_conditions)
@@ -347,7 +356,7 @@ class CognitiveBehaviorTreeFramework:
                     # Recursively execute subtasks
                     if subtask_subtasks:
                         subtask_completed = False
-                        for i in range(3):
+                        for i in range(1):
                             subtask_completed = execute_subtasks(
                                 {subtask: decomposition[subtask] for subtask in subtask_subtasks}, completed_subtasks)
                             if subtask_completed:
@@ -365,7 +374,7 @@ class CognitiveBehaviorTreeFramework:
                 if not completed_subtasks:
                     print('Failed to complete any subtasks, moving to the next top-level task.')
                     continue
-            except Exception as e:
+            except TimeoutError as e:
                 print(f"Failed during subtask execution: {e}, moving to the next top-level task.")
                 continue
 
@@ -380,5 +389,5 @@ if __name__ == "__main__":
     sim = AI2ThorSimEnv(scene_index=24)
     # goal, _ = get_make_coffee(sim)
     cbtf = CognitiveBehaviorTreeFramework(sim)
-    cbtf.set_goal('put_food')
-    print(cbtf.manage_task_ordered("put the produce in the fridge"))
+    cbtf.set_goal('coffee')
+    print(cbtf.manage_task_ordered("set a place at the table"))
