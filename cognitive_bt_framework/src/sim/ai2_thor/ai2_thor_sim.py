@@ -162,9 +162,13 @@ class AI2ThorSimEnv:
         # return self.controller.step(action="Done")
 
     def turn_left(self, degrees=90):
+        if type(degrees) is not float:
+            degrees = float(90)
         return self.controller.step("RotateLeft", degrees=degrees)
 
     def turn_right(self, degrees=90):
+        if type(degrees) is not float:
+            degrees = float(90)
         return self.controller.step("RotateRight", degrees=degrees)
 
     def look_up(self, degrees=10):
@@ -430,14 +434,25 @@ class AI2ThorSimEnv:
     def handle_scan_room(self, goal_obj, memory, pause_time = 0.5):
         print(f"scanning for object {goal_obj}")
         action = random.choice([self.turn_left, self.turn_left, self.turn_right])
+        action = self.turn_left
         for j in range(3):
+            state = self.get_state()
+            if any([self.check_same_obj(goal_obj, object["name"].lower()) for object in
+                    state['objects']]) or goal_obj.lower() in self.room_names:
+                print(f"{goal_obj} found!")
+                # if j > 0:
+                #     fn_inv(45)
+                return True, ""
             fn, fn_inv = None, None
             if j > 0:
                 fn = self.look_down if j == 1 else self.look_up
                 fn_inv = self.look_up if j == 1 else self.look_down
-                fn(45)
+                fn(45.0)
             for i in range(12):
-                evt = action(degrees=30)
+                evt = action(degrees=30.0)
+                if not evt.metadata['lastActionSuccess']:
+                    action = self.turn_right
+                    evt = action(degrees=30.0)
                 time.sleep(pause_time)
                 self.done()
                 state = self.get_state()
@@ -455,7 +470,7 @@ class AI2ThorSimEnv:
                     #     fn_inv(45)
                     return True, ""
             if j > 0:
-                fn_inv(45)
+                fn_inv(45.0)
         return False, (f"Failed to find object {goal_obj} during scan_room, it may not be visible from my"
                        f" current position try movement actions or add sequences to search likely containers that {goal_obj} might be inside of.")
 
@@ -463,7 +478,8 @@ class AI2ThorSimEnv:
         return [action]
 
     def check_same_obj(self, obj1, obj2):
-        return obj1.lower().split("_")[0] == obj2.lower().split("_")[0]
+        # return obj1.lower().split("_")[0] == obj2.lower().split("_")[0]
+        return obj1.lower() == obj2.lower()
 
     def add_object_waypoint(self, x, y):
         pass
@@ -505,9 +521,9 @@ class AI2ThorSimEnv:
         object_state = next((obj for obj in current_state['objects'] if target in obj['name'].lower()), None)
         if object_state is None:
             return False, f'Cannot check condition {cond} for {target} because the state of {target} is unknown. Try search actions like <action name="scanroom" target={target}/>'
-        # if object_state is None:
-        #     # Fallback to memory
-        #     object_state, _ = memory.retrieve_object_state(target)
+        if object_state is None:
+            # Fallback to memory
+            object_state, _ = memory.retrieve_object_state(target)
         if "inroom" in cond.lower():
             return True, ""
 
@@ -522,6 +538,8 @@ class AI2ThorSimEnv:
             msg = f"isClose {object_state['name'].lower()} is {isClose}"
             return isClose, msg
         if "isontop" in cond.lower() or "isinside" in cond.lower():
+            current_state = self.get_graph()
+            object_state = next((obj for obj in current_state['objects'] if target in obj['name'].lower()), None)
             if recipient is None:
                 return False, (f"I failed to check {cond} target={target} because recipient is None. please provide a "
                                f"recipient in the following format "
@@ -529,15 +547,15 @@ class AI2ThorSimEnv:
             surfCont = [obj for obj in self.get_graph()['objects'] if recipient.lower() in obj['name'].lower()]
             if len(surfCont) == 0:
                 surfCont, _ = memory.retrieve_object_state(recipient)
-            else:
-                surfCont = surfCont[0]
+                surfCont = [surfCont]
             if surfCont is None:
                 return False, (f'I failed to check <condition name={cond} target={target} recipient={recipient}/> '
                                f'because the object state is unknown. Try search actions like '
                                f'<action name=scanroom target={target}/> or look for {target} inside recepticals.')
-            if surfCont['receptacleObjectIds'] is None or not surfCont['receptacle']:
-                return False, f"{recipient} is not a receptical so {target} cannot be {cond}."
-            isInOn = any(target.lower().split('_')[0] in name.lower() for name in surfCont['receptacleObjectIds'])
+            # if surfCont['receptacleObjectIds'] is None or not surfCont['receptacle']:
+            #     return False, f"{recipient} is not a receptical so {target} cannot be {cond}."
+            print(surfCont)
+            isInOn = any(target.lower().split('_')[0] in name.lower() for surf in surfCont for name in surf['receptacleObjectIds'])
             msg = "" if isInOn == value else f"<condition name={cond} target={target} recipient={recipient}/> is {isInOn}."
             return isInOn == value, msg
 
@@ -599,9 +617,11 @@ class AI2ThorSimEnv:
 
             # Find specific target object
             object_state = next((obj for obj in current_state['objects'] if target.lower() in obj['name'].lower()), None)
-
+            if object_state is None:
+                return False, (f"Could not find object named {target} try search actions like "
+                               f"<action name='scanroom' target={target}/> or look for {target} inside recepticals.>.")
             print(f"Action: {act}, Target: {target}")
-
+            print(object_state)
             if target is None:
                 result = self.action_fn_from_str[act]()
                 continue
@@ -723,13 +743,20 @@ class AI2ThorSimEnv:
             success = any([obj['fillLiquid'] == 'coffee' for obj in state["objects"] if 'mug' in obj['name'].lower()])
             if success:
                 cup = [obj for obj in state['objects'] if 'mug' in obj['name'].lower() and obj['fillLiquid'] == 'coffee']
-                success = success and any(any('table' in parent.lower() for parent in obj['parentReceptacles']) for obj in cup)
+                success = success and len(cup) > 0 and any(any('table' in parent.lower() for parent in obj['parentReceptacles']) for obj in cup if obj['parentReceptacles'] is not None)
             return
         if goal == 'water_cup':
             return any([obj['fillLiquid'] == 'water' for obj in state["objects"] if 'cup' in obj['name'].lower()])
         if goal == 'apple':
             fridge = [obj['name'] for obj in state['objects'] if 'fridge' in obj['name'].lower()][0]
             return any(fridge in obj['parentReceptacles'] for obj in state["objects"] if 'apple' in obj['name'].lower() and obj['parentReceptacles'] is not None)
+        if goal == 'set_place':
+            objects = ['fork', 'knife', 'plate']
+            tables = [obj for obj in state["objects"] if 'table' in obj['name'].lower()]
+            success = True
+            for obj in objects:
+               success = success and any(obj in rec.lower() for table in tables for rec in table['receptacleObjectIds'] if table['receptacleObjectIds'] is not None)
+            return success
         return False
 
     def validate_goal(self, goal):

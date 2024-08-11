@@ -58,6 +58,9 @@ class CognitiveBehaviorTreeFramework:
         self.known_objects = []
         self.goal = None
         self.max_actions = 5
+        self.max_goal_retries = 3
+        self.num_refinement_retires = 2
+
 
     def get_embedding(self, text):
         if '_' in text:
@@ -260,7 +263,7 @@ class CognitiveBehaviorTreeFramework:
     def manage_task_ordered(self, task_name):
         episode_id = self.memory.start_new_episode(task_name)
         itter = 0
-        while not self.robot_interface.check_goal(self.goal):
+        while not self.robot_interface.check_goal(self.goal) and itter < self.max_goal_retries:
             itter += 1
             try:
                 context, states = self.robot_interface.get_context(3)
@@ -295,9 +298,11 @@ class CognitiveBehaviorTreeFramework:
 
                     if not self.robot_interface.validate_goal(details):
                         return False
-
+                    sub_itter = 0
                     while (not self.robot_interface.check_satisfied(subtask_conditions[0], memory=self.memory)[0] and not
-                           self.robot_interface.check_goal(self.goal)):
+                           self.robot_interface.check_goal(self.goal) and sub_itter < self.max_goal_retries):
+                        sub_itter += 1
+                        print(f'#######################################################3 SubItter {sub_itter}')
                         if self.robot_interface.check_goal(self.goal):
                             print('Success!')
                             return True
@@ -337,7 +342,7 @@ class CognitiveBehaviorTreeFramework:
                             msg = f"Execution of behavior tree ended in success but task {subtask_name} is NOT COMPLETED."
                         print(f"Failed to execute behavior tree due to {msg}.")
 
-                        for i in range(4):
+                        for i in range(self.num_refinement_retires):
                             try:
                                 context_img = None  # self.robot_interface.get_context(1)
                                 new_root = self.refine_and_update_bt(
@@ -385,9 +390,10 @@ class CognitiveBehaviorTreeFramework:
 
 if __name__ == "__main__":
     # 28, 24, 9
+    # 28, 27,
     # no walk 19, 23,
-    sim = AI2ThorSimEnv(scene_index=24)
+    sim = AI2ThorSimEnv(scene_index=28)
     # goal, _ = get_make_coffee(sim)
     cbtf = CognitiveBehaviorTreeFramework(sim)
-    cbtf.set_goal('coffee')
+    cbtf.set_goal('set_place')
     print(cbtf.manage_task_ordered("set a place at the table"))

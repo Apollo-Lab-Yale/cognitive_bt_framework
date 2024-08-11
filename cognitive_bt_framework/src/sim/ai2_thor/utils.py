@@ -35,13 +35,13 @@ AI2THOR_ACTIONS_ANNOTATED = [
     'walk_to_room',
     'walk_to_object',
     'grab',
-    'turnleft',
-    'turnright',
+    'turnleft (rotates agent to the left by 90 degrees)',
+    'turnright (rotates agent to the right by 90 degrees)',
     'put <receptical> (attempts to place object in agents hand onto/into target receptical)',
     'open',
     'close',
     'cook',
-    'switchon',
+    'switchon (turns object on, can be used for appliances)',
     'switchoff',
     'slice',
     'cut',
@@ -145,7 +145,7 @@ AI2THOR_TO_VHOME = {
     "fillLiquid": "FILLED"
 }
 
-CLOSE_DISTANCE = 2
+CLOSE_DISTANCE = 1.5
 
 class Event:
     def __init__(self):
