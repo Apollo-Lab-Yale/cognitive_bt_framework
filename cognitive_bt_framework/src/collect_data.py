@@ -1,6 +1,8 @@
 import csv
 from cognitive_bt_framework.src.sim.ai2_thor.ai2_thor_sim import AI2ThorSimEnv
 from cognitive_bt_framework.src.cbt_planner.cbtf import CognitiveBehaviorTreeFramework
+import time
+
 
 goals = ['set_place', 'wash_mug', 'apple', 'coffee']
 
@@ -25,7 +27,7 @@ def main():
     with open(output_csv, mode='w', newline='') as file:
         writer = csv.writer(file)
         # Write the header
-        writer.writerow(['Goal', 'Scene', 'Trial', 'Success'])
+        writer.writerow(['Goal', 'Scene', 'Trial', 'Success', 'ExecTime'])
 
         # Run simulations and log data
         for goal in goals:
@@ -34,9 +36,11 @@ def main():
                 for scene in scenes:
                     sim.reset(scene_index=scene)
                     cbtf.set_goal(goal)
+                    start = time.time()
                     success = cbtf.manage_task_ordered(goals_nl[goal])
+                    runtime = time.time() - start
                     # Write data to CSV
-                    writer.writerow([goal, scene, trial, success])
+                    writer.writerow([goal, scene, trial, success, runtime])
 
 
 if __name__ == "__main__":
