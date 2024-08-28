@@ -392,7 +392,7 @@ if __name__ == "__main__":
     # 28, 24, 9
     # 28, 27,
     # no walk 19, 23,
-    sim = AI2ThorSimEnv(scene_index=28)
+    sim = AI2ThorSimEnv(scene_index=6)
     # goal, _ = get_make_coffee(sim)
     cbtf = CognitiveBehaviorTreeFramework(sim)
     cbtf.set_goal('set_place')
