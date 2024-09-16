@@ -1,8 +1,9 @@
 import copy
 from PIL import Image
 import math
+from typing import Tuple
 import numpy as np
-
+from scipy.spatial import distance
 NO_VALID_PUT = "No valid positions to place object found"
 PUT_COLLISION = "another object's collision is blocking held object from being placed"
 
@@ -11,9 +12,10 @@ AI2THOR_ACTIONS = [
     'walk_to_room',
     'walk_to_object',
     'grab',
-    'turnleft',
-    'turnright',
+    # 'turnleft',
+    # 'turnright',
     'put',
+    'putin',
     'open',
     'close',
     'cook',
@@ -27,21 +29,20 @@ AI2THOR_ACTIONS = [
     'lookup',
     'lookdown',
     'scanroom',
-    'wash'
 ]
 
 AI2THOR_ACTIONS_ANNOTATED = [
     'break',
-    'walk_to_room',
     'walk_to_object',
     'grab',
-    'turnleft',
-    'turnright',
+    # 'turnleft (rotates agent to the left by 90 degrees)',
+    # 'turnright (rotates agent to the right by 90 degrees)',
     'put <receptical> (attempts to place object in agents hand onto/into target receptical)',
+    'putin',
     'open',
     'close',
     'cook',
-    'switchon',
+    'switchon (turns object on, can be used for appliances)',
     'switchoff',
     'slice',
     'cut',
@@ -50,8 +51,7 @@ AI2THOR_ACTIONS_ANNOTATED = [
     'turnaround',
     'lookup',
     'lookdown',
-    'scanroom',
-    'wash',
+    'scanroom <object> (does a visual scan from the current position looking for object)',
     'putin <reciptical> (attempts to place object in agents hand onto/into target receptical)'
 ]
 
@@ -145,7 +145,7 @@ AI2THOR_TO_VHOME = {
     "fillLiquid": "FILLED"
 }
 
-CLOSE_DISTANCE = 2
+CLOSE_DISTANCE = 1.5
 
 class Event:
     def __init__(self):
@@ -415,5 +415,71 @@ def get_room_polygon(scene, room):
     except:
         raise Exception(f"Failed to find room {room}.")
 
+
+def distance_pts(p1: Tuple[float, float, float], p2: Tuple[float, float, float]):
+    return ((p1[0] - p2[0]) ** 2 + (p1[2] - p2[2]) ** 2) ** 0.5
+
+def closest_node(node, nodes, no_robot, clost_node_location):
+    crps = []
+    distances = distance.cdist([node], nodes)[0]
+    dist_indices = np.argsort(np.array(distances))
+    for i in range(no_robot):
+        pos_index = dist_indices[(i * 5) + clost_node_location[i]]
+        crps.append (nodes[pos_index])
+    return crps
+action_queue = []
+
 def get_inf_floor_polygon():
     return -1
+
+
+import json
+
+class StateGraphConverter:
+    def __init__(self, data):
+        self.rooms = data.get('rooms', [])
+        self.objects = data.get('objects', [])
+
+    def convert_to_vhome_graph(self):
+        graph = {
+            'nodes': [],
+            'edges': []
+        }
+
+        # Adding rooms as nodes
+        for room in self.rooms:
+            room_node = {
+                'id': room['name'],
+                'type': 'room',
+                'roomType': room['roomType'],
+                'floorPolygon': room['floorPolygon']
+            }
+            graph['nodes'].append(room_node)
+
+        # Adding objects as nodes and their relations as edges
+        for obj in self.objects:
+            object_node = {
+                'id': obj['objectId'],
+                'name': obj['name'],
+                'type': obj['objectType'],
+                'position': obj['position'],
+                'rotation': obj['rotation'],
+                'visible': obj['visible'],
+                'interactable': obj['isInteractable'],
+            }
+            graph['nodes'].append(object_node)
+
+            # Create edge between object and its parent receptacle
+            if obj['parentReceptacles']:
+                for receptacle in obj['parentReceptacles']:
+                    graph['edges'].append({
+                        'from': obj['objectId'],
+                        'to': receptacle,
+                        'relation': 'inside'
+                    })
+
+        return graph
+
+
+# Example us
+

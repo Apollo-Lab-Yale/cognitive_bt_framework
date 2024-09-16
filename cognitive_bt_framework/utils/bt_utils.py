@@ -161,6 +161,10 @@ class Action(Node):
             if 'visibility' in ret[1].lower():
                 ret = list(ret)
                 ret[1] += f' Try search actions like <Action name=scannroom, target="{self.target}"/>'
+            if 'with something if agent rotates' in ret[1].lower():
+                ret = list(ret)
+                ret[1] = ret[1].replace('with something if agent rotates', 'will COLLIDE with something if agent rotates')
+
         return *ret, self.to_xml()# Modify and return the new state
 
     def to_xml(self):

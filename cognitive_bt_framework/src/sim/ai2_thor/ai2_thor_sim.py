@@ -1,15 +1,25 @@
 from ai2thor.controller import Controller
 import numpy as np
+from typing import Tuple
 import time
 import prior
 import random
 import base64
+import time
+import math
+import threading
 import cv2
+import re
 from cognitive_bt_framework.src.sim.ai2_thor.utils import get_visible_objects, get_predicates, CLOSE_DISTANCE, find_closest_position, is_in_room, get_yaw_angle, get_vhome_to_thor_dict, get_inf_floor_polygon, \
-    NO_VALID_PUT, Event, PUT_COLLISION, AI2THOR_PREDICATES
+    NO_VALID_PUT, Event, PUT_COLLISION, AI2THOR_PREDICATES, closest_node, distance_pts
 from cognitive_bt_framework.src.sim.ai2_thor.image_saver import SaveImagesThread
 
-from cognitive_bt_framework.utils.logic_utils import parse_instantiated_predicate
+def parse_instantiated_predicate(predicate_str):
+    parts = predicate_str.split()
+    predicate_name = parts[0]
+    target = parts[1] if len(parts) > 1 else None
+    return predicate_name, parts[1:]
+
 def get_ithor_scene_single_room(room, index = -1):
     broken_rooms = [2, 5, 17, 22]
     if index > 0:
@@ -31,6 +41,10 @@ def get_ithor_scene_single_room(room, index = -1):
         rooms = bathrooms
     assert len(rooms) > 0
     return np.random.choice(rooms)
+action_queue = []
+
+
+
 
 class AI2ThorSimEnv:
     def __init__(self, scene_index=-1, width=600, height=600, gridSize=0.25, visibilityDistance=20, single_room='kitchen', save_video=False, use_find = False):
@@ -41,6 +55,9 @@ class AI2ThorSimEnv:
         self.image_saver = None
         self.save_video = save_video
         self.use_find = use_find
+        self.reachable_positions = None
+        self.reset_pose = None
+        self.navigating = False
         self.reset(scene_index, width, height, gridSize, visibilityDistance, single_room, save_video)
         self.valid_positions = self.get_valid_positions()
         self.object_waypoints = {}
@@ -48,11 +65,13 @@ class AI2ThorSimEnv:
         self.action_fn_from_str = {
             "walk_to_room": self.navigate_to_room,
             "walk_to_object": self.navigate_to_object,
+            "walk": self.navigate_to_object,
             "grab": self.grab_object,
             "turnleft": self.turn_left,
             "turnright": self.turn_right,
             "put": self.place_object,
             "putin": self.place_object,
+            "putback": self.place_object,
             "open": self.open_object,
             "close": self.close_object,
             "cook": self.cook_object,
@@ -72,9 +91,46 @@ class AI2ThorSimEnv:
             "break": self.break_obj
         }
         self.room_names = ['kitchen']#, 'livingroom', 'bedroom', 'bathroom']
+        self.nav_thread = None
+
+        self.vhome_obj_ids = {}
+
+
+    def exec_actions(self):
+        c = self.controller
+        while self.navigating:
+            if len(action_queue) > 0:
+                try:
+                    act = action_queue[0]
+                    if act['action'] == 'ObjectNavExpertAction':
+                        multi_agent_event = c.step(
+                            dict(action=act['action'], position=act['position'], agentId=act['agent_id']))
+                        next_action = multi_agent_event.metadata['actionReturn']
+
+                        if next_action != None:
+                            multi_agent_event = c.step(action=next_action, agentId=act['agent_id'], forceAction=False)
+
+                    elif act['action'] == 'RotateLeft':
+                        multi_agent_event = c.step(action="RotateLeft", degrees=act['degrees'], agentId=act['agent_id'])
+
+                    elif act['action'] == 'RotateRight':
+                        multi_agent_event = c.step(action="RotateRight", degrees=act['degrees'],
+                                                   agentId=act['agent_id'])
+
+                except Exception as e:
+                    print(e)
+                    if 'write to closed file' in str(e).lower():
+                        self.navigating = False
+                        self.reset(self.scene_index)
+
+                action_queue.pop(0)
+
+            time.sleep(0.2)
 
     def reset(self, scene_index=-1, width=600, height=600, gridSize=0.25, visibilityDistance=10, single_room='kitchen', save_video=False):
         scene = None
+        self.scene_index = scene_index
+        self.vhome_obj_ids = {}
         self.save_video = save_video
         if single_room is not None and single_room != '':
             scene = get_ithor_scene_single_room(single_room, index=scene_index)
@@ -89,7 +145,12 @@ class AI2ThorSimEnv:
                                          visibilityDistance=visibilityDistance, width=width,
                                          height=height, allowAutoSimulation=True, gridSize=gridSize)
         self.controller.reset(scene)
+        self.get_vhome_obj_ids(self.get_graph())
+        self.reset_pose = self.controller.last_event.metadata['agent']['position']
+        reachable_positions_ = self.controller.step(action="GetReachablePositions").metadata["actionReturn"]
+        self.reachable_positions =  [(p["x"], p["y"], p["z"]) for p in reachable_positions_]
         self.scene = {"rooms": [{"roomType": single_room, "floorPolygon": get_inf_floor_polygon(), "name":scene}]}
+        self.object_names = self.get_object_names()
         print(self.scene)
         if self.save_video:
             if self.image_saver is not None:
@@ -109,19 +170,21 @@ class AI2ThorSimEnv:
                 return obj['position']
         return None
 
-    def turn_around(self):
+    def turn_around(self, hold=None):
         act = np.random.choice([self.turn_left, self.turn_right])
         return act(180)
 
     def get_state(self, goal_objs=None):
         event = self.controller.last_event.metadata
         state = {}
+        state["objects"] = event["objects"]
         state["objects"] = get_visible_objects(event["objects"])
         for object in state["objects"]:
             if 'surface' in object['name']:
                 object['onTop'] = object['parentReceptacles']
         state["predicates"] = get_predicates(state["objects"])
-        state["room_names"] = [room['roomType'] for room in self.scene['rooms']]
+        # state["room_names"] = [room['roomType'] for room in self.scene['rooms']]
+        state["room_names"] = self.room_names
         state["robot_state"] = event['agent']
         state["memory_dict"] = {}
         return state
@@ -162,9 +225,13 @@ class AI2ThorSimEnv:
         # return self.controller.step(action="Done")
 
     def turn_left(self, degrees=90):
+        if type(degrees) is not float:
+            degrees = float(90)
         return self.controller.step("RotateLeft", degrees=degrees)
 
     def turn_right(self, degrees=90):
+        if type(degrees) is not float:
+            degrees = float(90)
         return self.controller.step("RotateRight", degrees=degrees)
 
     def look_up(self, degrees=10):
@@ -218,6 +285,7 @@ class AI2ThorSimEnv:
             ret = Event()
             ret.metadata['lastActionSuccess'] = False
             ret.metadata['errorMessage'] = f'Failed to grab object {object["objectId"]}, agent is too far away navigate closer to interact.'
+            return ret
         if object['isPickedUp']:
             ret = Event()
             ret.metadata['lastActionSuccess'] = True
@@ -244,18 +312,28 @@ class AI2ThorSimEnv:
         return ret
 
     def place_object(self, target):
+        held_obj = [obj for obj in self.get_graph()['objects'] if obj['isPickedUp']]
+        if len(held_obj) == 0:
+            fail_event = Event()
+            fail_event.metadata['lastActionSuccess'] = False
+            fail_event.metadata['errorMessage'] = f'Cannot place onto {target["objectId"]} because no object is held'
+            return fail_event
         if target['distance'] > CLOSE_DISTANCE and 'counter' not in target['name']:
             fail_event = Event()
             fail_event.metadata['lastActionSuccess'] = False
             fail_event.metadata['errorMessage'] = (f"Not close enough to {target['name'].lower()} to put the heald object. "
                                                    f"NAVIGATE CLOSER to {target['name'].lower()} to interact.")
             return fail_event
-        return self.controller.step(
+        held_obj = held_obj[0]
+        ret = self.controller.step(
             action="PutObject",
             objectId=target["objectId"],
             forceAction=True,
             placeStationary=True
         )
+        if ret.metadata['lastActionSuccess']:
+            self.handle_scan_room(held_obj['name'], None)
+        return ret
 
     def get_interactable_poses(self, object):
         positions = self.controller.step(
@@ -264,9 +342,196 @@ class AI2ThorSimEnv:
             ).metadata['actionReturn']
         return positions
 
+
+    def exec_action(self):
+        c = self.controller
+        if len(action_queue) > 0:
+            try:
+                act = action_queue[0]
+                if act['action'] == 'ObjectNavExpertAction':
+                    multi_agent_event = c.step(
+                        dict(action=act['action'], position=act['position'], agentId=act['agent_id']))
+                    next_action = multi_agent_event.metadata['actionReturn']
+
+                    if next_action != None:
+                        multi_agent_event = c.step(action=next_action, agentId=act['agent_id'], forceAction=False)
+
+                elif act['action'] == 'RotateLeft':
+                    multi_agent_event = c.step(action="RotateLeft", degrees=act['degrees'], agentId=act['agent_id'])
+
+                elif act['action'] == 'RotateRight':
+                    multi_agent_event = c.step(action="RotateRight", degrees=act['degrees'],
+                                               agentId=act['agent_id'])
+                if not multi_agent_event.metadata['lastActionSuccess']:
+                    c.step(action="ObjectNavExpertAction", position=self.reset_pose, agentId=act['agent_id'])
+            except Exception as e:
+                print(e)
+                if 'write to closed file' in str(e).lower():
+                    self.navigating = False
+                    self.reset(self.scene_index)
+
+            action_queue.pop(0)
+
+        time.sleep(0.2)
+
+
+    def GoToObject(self, dest_obj):
+        print("Going to ", dest_obj)
+        robots = [{'name': 'agent', 'skills': ['GoToObject', 'OpenObject', 'CloseObject', 'BreakObject', 'SliceObject', 'SwitchOn', 'SwitchOff', 'PickupObject', 'PutObject', 'DropHandObject', 'ThrowObject', 'PushObject', 'PullObject']}]
+        c = self.controller
+        # check if robots is a list
+        # reachable_positions_ = self.controller.step(action="GetReachablePositions").metadata["actionReturn"]
+        # self.reachable_positions = [(p["x"], p["y"], p["z"]) for p in reachable_positions_]
+        reachable_positions = self.reachable_positions
+        if not isinstance(robots, list):
+            # convert robot to a list
+            robots = [robots]
+        no_agents = len(robots)
+        # robots distance to the goal
+        dist_goals = [10.0] * len(robots)
+        prev_dist_goals = [10.0] * len(robots)
+        count_since_update = [0] * len(robots)
+        clost_node_location = [0] * len(robots)
+
+        # list of objects in the scene and their centers
+        objs = list([obj["objectId"] for obj in c.last_event.metadata["objects"]])
+        objs_center = list([obj["axisAlignedBoundingBox"]["center"] for obj in c.last_event.metadata["objects"]])
+        agent_id = 0
+        # look for the location and id of the destination object
+        for idx, obj in enumerate(objs):
+            match = re.match(dest_obj, obj)
+            if match is not None:
+                dest_obj_id = obj
+                dest_obj_center = objs_center[idx]
+                break  # find the first instance
+
+        dest_obj_pos = [dest_obj_center['x'], dest_obj_center['y'], dest_obj_center['z']]
+
+        # closest reachable position for each robot
+        # all robots cannot reach the same spot
+        # differt close points needs to be found for each robot
+        print(reachable_positions)
+        crp = closest_node(dest_obj_pos, reachable_positions, no_agents, clost_node_location)
+
+        goal_thresh = 0.3
+        # at least one robot is far away from the goal
+        max_iter = 30
+        iter = 0
+        while all(d > goal_thresh for d in dist_goals):
+            if iter > max_iter:
+                return False
+            iter += 1
+
+            for ia, robot in enumerate(robots):
+                robot_name = robot['name']
+                agent_id = 0
+
+                # get the pose of robot
+                metadata = c.last_event.events[agent_id].metadata
+                location = {
+                    "x": metadata["agent"]["position"]["x"],
+                    "y": metadata["agent"]["position"]["y"],
+                    "z": metadata["agent"]["position"]["z"],
+                    "rotation": metadata["agent"]["rotation"]["y"],
+                    "horizon": metadata["agent"]["cameraHorizon"]}
+
+                prev_dist_goals[ia] = dist_goals[ia]  # store the previous distance to goal
+                dist_goals[ia] = distance_pts([location['x'], location['y'], location['z']], crp[ia])
+
+                dist_del = abs(dist_goals[ia] - prev_dist_goals[ia])
+                print(ia, "Dist to Goal: ", dist_goals[ia], dist_del, clost_node_location[ia])
+                if dist_del < 0.2:
+                    # robot did not move
+                    count_since_update[ia] += 1
+                else:
+                    # robot moving
+                    count_since_update[ia] = 0
+
+                if count_since_update[ia] < 15:
+                    action_queue.append(
+                        {'action': 'ObjectNavExpertAction', 'position': dict(x=crp[ia][0], y=crp[ia][1], z=crp[ia][2]),
+                         'agent_id': agent_id})
+                    self.exec_action()
+                else:
+                    # updating goal
+                    clost_node_location[ia] += 1
+                    count_since_update[ia] = 0
+                    crp = closest_node(dest_obj_pos, reachable_positions, no_agents, clost_node_location)
+
+                # time.sleep(0.2)
+
+        # align the robot once goal is reached
+        # compute angle between robot heading and object
+        metadata = c.last_event.events[agent_id].metadata
+        robot_location = {
+            "x": metadata["agent"]["position"]["x"],
+            "y": metadata["agent"]["position"]["y"],
+            "z": metadata["agent"]["position"]["z"],
+            "rotation": metadata["agent"]["rotation"]["y"],
+            "horizon": metadata["agent"]["cameraHorizon"]}
+
+        robot_object_vec = [dest_obj_pos[0] - robot_location['x'], dest_obj_pos[2] - robot_location['z']]
+        y_axis = [0, 1]
+        unit_y = y_axis / np.linalg.norm(y_axis)
+        unit_vector = robot_object_vec / np.linalg.norm(robot_object_vec)
+
+        angle = math.atan2(np.linalg.det([unit_vector, unit_y]), np.dot(unit_vector, unit_y))
+        angle = 360 * angle / (2 * np.pi)
+        angle = (angle + 360) % 360
+        rot_angle = angle - robot_location['rotation']
+
+        print("Reached: ", dest_obj)
+        return True
+
+    def exec_acts(self):
+        global action_queue
+        c = self.controller
+        multi_agent_event = self.controller.last_event
+        while len(action_queue) > 0:
+            act = action_queue[0]
+            if act['action'] == 'ObjectNavExpertAction':
+                multi_agent_event = c.step(
+                    dict(action=act['action'], position=act['position'], agentId=act['agent_id']))
+                next_action = multi_agent_event.metadata['actionReturn']
+
+                if next_action != None:
+                    multi_agent_event = c.step(action=next_action, agentId=act['agent_id'], forceAction=False)
+
+            elif act['action'] == 'RotateLeft':
+                multi_agent_event = c.step(action="RotateLeft", degrees=act['degrees'], agentId=act['agent_id'])
+
+            elif act['action'] == 'RotateRight':
+                multi_agent_event = c.step(action="RotateRight", degrees=act['degrees'],
+                                           agentId=act['agent_id'])
+            if not multi_agent_event.metadata['lastActionSuccess']:
+                multi_agent_event = self.controller.step(action='Teleport', position=self.reset_pose, forceAction=True)
+                action_queue = []
+                return multi_agent_event
+            action_queue.pop(0)
+            time.sleep(0.2)
+        return multi_agent_event
+
+
     def navigate_to_object(self, object):
-        if type(object) == str:
-            return True, ""
+        # # self.navigating = True
+        # # self.nav_thread = threading.Thread(target=self.exec_actions)
+        # self.nav_thread.start()
+        obj = object
+        if type(object) != str:
+            obj = object['name']
+        nav_obj = obj.split('_')[0]
+        success = self.GoToObject(nav_obj)
+        if not success:
+            res = self.controller.step(action='Teleport', position=self.reset_pose)
+            print("545"*100)
+            print(res)
+            return False, "failed to navigate to object"
+        self.exec_acts()
+
+        ret = self.controller.last_event
+        self.navigating = False
+        self.handle_scan_room(object['name'], memory=None)
+        return ret
         positions = self.get_valid_positions()
         print('navigate to object')
         print(type(object))
@@ -285,7 +550,7 @@ class AI2ThorSimEnv:
             action="Teleport",
             position=teleport_pose,
             rotation={'x': 0.0, 'y': get_yaw_angle(teleport_pose,object['rotation'], object['position']), 'z': 0.0},
-            forceAction=True
+            forceAction=False
         )
         print("navigated to object scanning")
         self.handle_scan_room(object['name'], None)
@@ -427,17 +692,29 @@ class AI2ThorSimEnv:
         return self.controller.step(action="DropHandObject",
                              forceAction=False)
 
-    def handle_scan_room(self, goal_obj, memory, pause_time = 0.5):
+    def handle_scan_room(self, goal_obj, memory, pause_time = 0.2, is_goal=False):
         print(f"scanning for object {goal_obj}")
         action = random.choice([self.turn_left, self.turn_left, self.turn_right])
+        action = self.turn_left
+        goal_obj_name = goal_obj.split('_')[0]
         for j in range(3):
+            state = self.get_state()
+            if any([self.check_same_obj(goal_obj.lower(), object["name"].lower()) for object in
+                    state['objects']]) or goal_obj.lower() in self.room_names:
+                print(f"{goal_obj} found!")
+                # if j > 0:
+                #     fn_inv(45)
+                return True, ""
             fn, fn_inv = None, None
             if j > 0:
                 fn = self.look_down if j == 1 else self.look_up
                 fn_inv = self.look_up if j == 1 else self.look_down
-                fn(45)
+                fn(45.0)
             for i in range(12):
-                evt = action(degrees=30)
+                evt = action(degrees=30.0)
+                if not evt.metadata['lastActionSuccess']:
+                    action = self.turn_right
+                    evt = action(degrees=30.0)
                 time.sleep(pause_time)
                 self.done()
                 state = self.get_state()
@@ -449,13 +726,14 @@ class AI2ThorSimEnv:
                 if not self.controller.last_event.metadata["lastActionSuccess"]:
                     return self.controller.last_event.metadata["lastActionSuccess"], self.controller.last_event.metadata[
                         "errorMessage"]
-                if any([self.check_same_obj(goal_obj, object["name"].lower()) for object in state['objects']]) or goal_obj.lower() in self.room_names:
+                if any([self.check_same_obj(goal_obj.lower(), object["name"].lower()) for object in self.get_state()['objects']]) or goal_obj.lower() in self.room_names:
                     print(f"{goal_obj} found!")
+                    print([obj for obj in self.get_state()['objects'] if obj['name'].lower() == goal_obj.lower()])
                     # if j > 0:
                     #     fn_inv(45)
                     return True, ""
             if j > 0:
-                fn_inv(45)
+                fn_inv(45.0)
         return False, (f"Failed to find object {goal_obj} during scan_room, it may not be visible from my"
                        f" current position try movement actions or add sequences to search likely containers that {goal_obj} might be inside of.")
 
@@ -463,7 +741,8 @@ class AI2ThorSimEnv:
         return [action]
 
     def check_same_obj(self, obj1, obj2):
-        return obj1.lower().split("_")[0] == obj2.lower().split("_")[0]
+        # return obj1.lower().split("_")[0] == obj2.lower().split("_")[0]
+        return obj1.lower() == obj2.lower()
 
     def add_object_waypoint(self, x, y):
         pass
@@ -522,6 +801,8 @@ class AI2ThorSimEnv:
             msg = f"isClose {object_state['name'].lower()} is {isClose}"
             return isClose, msg
         if "isontop" in cond.lower() or "isinside" in cond.lower():
+            current_state = self.get_graph()
+            object_state = next((obj for obj in current_state['objects'] if target in obj['name'].lower()), None)
             if recipient is None:
                 return False, (f"I failed to check {cond} target={target} because recipient is None. please provide a "
                                f"recipient in the following format "
@@ -529,15 +810,19 @@ class AI2ThorSimEnv:
             surfCont = [obj for obj in self.get_graph()['objects'] if recipient.lower() in obj['name'].lower()]
             if len(surfCont) == 0:
                 surfCont, _ = memory.retrieve_object_state(recipient)
+                surfCont = surfCont
             else:
                 surfCont = surfCont[0]
             if surfCont is None:
                 return False, (f'I failed to check <condition name={cond} target={target} recipient={recipient}/> '
                                f'because the object state is unknown. Try search actions like '
                                f'<action name=scanroom target={target}/> or look for {target} inside recepticals.')
-            if surfCont['receptacleObjectIds'] is None or not surfCont['receptacle']:
-                return False, f"{recipient} is not a receptical so {target} cannot be {cond}."
-            isInOn = any(target.lower().split('_')[0] in name.lower() for name in surfCont['receptacleObjectIds'])
+            # if surfCont['receptacleObjectIds'] is None or not surfCont['receptacle']:
+            #     return False, f"{recipient} is not a receptical so {target} cannot be {cond}."
+            print(surfCont)
+            isInOn = False
+            if surfCont['receptacleObjectIds'] is not None:
+                isInOn = any(target.lower().split('_')[0] in name.lower() for name in surfCont['receptacleObjectIds'])
             msg = "" if isInOn == value else f"<condition name={cond} target={target} recipient={recipient}/> is {isInOn}."
             return isInOn == value, msg
 
@@ -556,7 +841,7 @@ class AI2ThorSimEnv:
                        f'<action name=scanroom target={target}/> or look for {target} inside recepticals.')
 
     def execute_actions(self, actions, memory):
-        episode_id = memory.current_episode
+        # episode_id = memory.current_episode
 
         for action in actions:
             if 'walk_to_room' in action.lower():
@@ -569,20 +854,23 @@ class AI2ThorSimEnv:
 
             if type(target) == list:
                 target = target[0]
-            if "walk_to_object" in action.lower() and "sinkbasin" in target.lower():
-                obj = [ob for ob in self.get_graph()['objects'] if "sinkbasin" in ob['name'].lower()]
+            if target.lower() not in self.object_names:
+                return False, f"There is no object named {target} in this environemnent to execute action {act}"
+            if "walk" in action.lower() and "sinkbasin" in target.lower():
+                obj = [ob for ob in self.get_graph()['objects'] if "sink_" in ob['name'].lower()]
                 if len(obj) == 0:
-                    return False, "There is no object named {} in this env to execute action.".format(target)
+                    return False, f"There is no object named {target} in this env to execute action.".format(target)
                 evt = self.navigate_to_object(object=obj[0])
-                print(evt.keys())
-                return evt['LastActionSuccess'], evt["ErrorMessage"]
+
+                return evt.metadata['lastActionSuccess'], evt.metadata["errorMessage"]
 
             print(target)
             print(f"target type {type(target)}")
             if target is None or target == 'None':
                 result = self.action_fn_from_str[act]()
                 continue
-            if target not in self.room_names and not any(self.check_same_obj(target, obj.lower()) for obj in self.object_names) and target != 'None':
+
+            if target not in self.room_names and not any(self.check_same_obj(target.lower(), obj.lower()) for obj in self.object_names) and target != 'None':
                 print(self.object_names)
                 return False, "There is no object named {} in this env to execute action.".format(target)
             print(f"^^^^^^^^^^^^^^^ {target}")
@@ -590,8 +878,8 @@ class AI2ThorSimEnv:
             if 'scanroom' in act:
                 return self.handle_scan_room(target, memory)
             # Bulk update all objects in the current state
-            objects_to_update = [(obj['name'], obj) for obj in current_state['objects']]
-            memory.store_multiple_object_states(objects_to_update, episode_id, self.scene_id)
+            # objects_to_update = [(obj['name'], obj) for obj in current_state['objects']]
+            # memory.store_multiple_object_states(objects_to_update, episode_id, self.scene_id)
 
             if target in current_state['room_names'] or target.lower() in self.room_names:
                 ret = self.action_fn_from_str[act](target)
@@ -599,9 +887,11 @@ class AI2ThorSimEnv:
 
             # Find specific target object
             object_state = next((obj for obj in current_state['objects'] if target.lower() in obj['name'].lower()), None)
-
+            if object_state is None:
+                return False, (f"Could not find object named {target} try search actions like "
+                               f"<action name='scanroom' target={target}/> or look for {target} inside recepticals.>.")
             print(f"Action: {act}, Target: {target}")
-
+            print(object_state)
             if target is None:
                 result = self.action_fn_from_str[act]()
                 continue
@@ -610,6 +900,8 @@ class AI2ThorSimEnv:
                 result = self.action_fn_from_str[act](object_state)
             except Exception as e:
                 print(object_state)
+                if 'write to closed file' in f"{e}".lower():
+                    self.reset(self.scene_index)
                 print(f"Action <action name={act} target={target}> failed due to: {e}")
                 return False, f"Failed to execute action {act}: {e}."
 
@@ -649,6 +941,8 @@ class AI2ThorSimEnv:
             return True, ''
         print(sub_goal)
         sub_goal = sub_goal.split(" ")
+        if len(sub_goal) <= 1:
+            return False, f"I don't know how to verify this subgoal: {sub_goal}"
         value = int(sub_goal[-1])
         pred = sub_goal[0]
         params = sub_goal[1:-1]
@@ -712,6 +1006,40 @@ class AI2ThorSimEnv:
             to_remove.append(sub_goal)
         return success, to_remove
 
+    def goal_key_to_vhome_goal(self, goal_key):
+        state = self.get_graph()
+        goal = {}
+        self.vhome_obj_ids
+        if goal_key == "apple":
+            fridge = [obj for obj in state['objects'] if 'fridge' in obj['name'].lower()][0]
+
+            goal = {f'inside_Apple_{self.vhome_obj_ids[fridge["name"]]}': 1}
+        elif goal_key == "coffee":
+            mug = [obj for obj in state['objects'] if 'mug' in obj['name'].lower()][0]
+            table = [obj for obj in state['objects'] if 'diningtable' in obj['name'].lower()][0]
+
+            goal = {f'on_Mug_{self.vhome_obj_ids[table["name"]]}': 1, f'inside_coffee_{self.vhome_obj_ids[mug["name"]]}': 1}
+        elif goal_key == "set_place":
+            table = [obj for obj in state['objects'] if 'diningtable' in obj['name'].lower()][0]
+            goal = {f'on_Plate_{self.vhome_obj_ids[table["name"]]}': 1, f'on_Fork_{self.vhome_obj_ids[table["name"]]}': 1,
+                    f'on_Knife_{self.vhome_obj_ids[table["name"]]}': 1}
+        elif goal_key == "clean_mug":
+            sink = [obj for obj in state['objects'] if 'sinkbasin' in obj['name'].lower()][0]
+            mug = [obj for obj in state['objects'] if 'mug' in obj['name'].lower()][0]
+            faucet = [obj for obj in state['objects'] if 'faucet' in obj['name'].lower()][0]
+            goal = {f'on_Mug_{self.vhome_obj_ids[sink["name"]]}': 1, f'turnon_{self.vhome_obj_ids[faucet["name"]]}': 1}
+        return goal
+
+    def get_vhome_obj_ids(self, state):
+        obj_vals = list(self.vhome_obj_ids.values())
+        if len(obj_vals) > 0:
+            return self.vhome_obj_ids
+        cur_id = 2 if len(obj_vals) == 0 else max(obj_vals) + 1
+        for obj in state['objects']:
+            if obj['name'] not in self.vhome_obj_ids:
+                self.vhome_obj_ids[obj['name']] = cur_id
+                cur_id += 1
+        return self.vhome_obj_ids
 
     def check_goal(self, goal):
         state = self.get_graph()
@@ -723,13 +1051,29 @@ class AI2ThorSimEnv:
             success = any([obj['fillLiquid'] == 'coffee' for obj in state["objects"] if 'mug' in obj['name'].lower()])
             if success:
                 cup = [obj for obj in state['objects'] if 'mug' in obj['name'].lower() and obj['fillLiquid'] == 'coffee']
-                success = success and any(any('table' in parent.lower() for parent in obj['parentReceptacles']) for obj in cup)
-            return
+                success = success and len(cup) > 0 and any(any('table' in parent.lower() for parent in obj['parentReceptacles']) for obj in cup if obj['parentReceptacles'] is not None)
+            return success
         if goal == 'water_cup':
             return any([obj['fillLiquid'] == 'water' for obj in state["objects"] if 'cup' in obj['name'].lower()])
         if goal == 'apple':
-            fridge = [obj['name'] for obj in state['objects'] if 'fridge' in obj['name'].lower()][0]
-            return any(fridge in obj['parentReceptacles'] for obj in state["objects"] if 'apple' in obj['name'].lower() and obj['parentReceptacles'] is not None)
+            fridge = [obj for obj in state['objects'] if 'fridge' in obj['name'].lower()][0]
+            return any("apple" in obj.lower() for obj in fridge['receptacleObjectIds'] if
+                       fridge['receptacleObjectIds'] is not None)
+        if goal == 'set_place':
+            objects = ['fork', 'knife', 'plate']
+            tables = [obj for obj in state["objects"] if 'table' in obj['name'].lower()]
+            success = True
+            for obj in objects:
+               success = success and any(obj in rec.lower() for table in tables for rec in table['receptacleObjectIds'] if table['receptacleObjectIds'] is not None)
+            return success
+        if goal == 'clean_mug':
+            sinkbasin = [obj for obj in state["objects"] if 'sinkbasin' in obj['name'].lower()][0]
+            print(sinkbasin)
+            faucet = [obj for obj in state["objects"] if 'faucet' in obj['name'].lower()][0]
+            success = sinkbasin['receptacleObjectIds'] is not None and any('mug' in obj.lower() for obj in sinkbasin['receptacleObjectIds'])
+            success = success and faucet['isToggled']
+            return success
+
         return False
 
     def validate_goal(self, goal):
@@ -746,5 +1090,4 @@ class AI2ThorSimEnv:
 
 if __name__ == '__main__':
     sim = AI2ThorSimEnv()
-    print(sim.get_state())
-    print(sim.action_fn_from_str.keys())
+    print(sim.check_goal('apple'))

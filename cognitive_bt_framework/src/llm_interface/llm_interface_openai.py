@@ -4,6 +4,7 @@ from cognitive_bt_framework.utils import setup_openai, get_openai_key, parse_llm
 from cognitive_bt_framework.utils.bt_utils import DOMAIN_DEF
 from ratelimit import limits, sleep_and_retry
 from cognitive_bt_framework.src.sim.ai2_thor.utils import AI2THOR_PREDICATES_ANNOTATED
+import json
 import pprint
 class LLMInterfaceOpenAI:
     def __init__(self, model_name="gpt-4o"):
@@ -279,12 +280,17 @@ class LLMInterfaceOpenAI:
         # print(f"LLM PROMPT: {prompt}")
         try:
             # pprint.pp(prompt)
+            self.conversation_history.append(prompt)
             response = self.client.chat.completions.create(
                 model=self.model_name,
                 messages=prompt,
                 max_tokens=1000,
                 temperature=0.5
             )
+            self.conversation_history.append([{
+                'role': 'llm',
+                'content': response.choices[0].message.content
+            }])
         except Exception as e:
             print(f"Error querying LLM: {e}")
             return None  # Or handle appropriately
