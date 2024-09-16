@@ -36,7 +36,7 @@ def preprocess_text(text):
 DEFAULT_DB_PATH = '/home/liam/dev/cognitive_bt_framework/cognitive_bt_framework/src/'
 
 class CognitiveBehaviorTreeFramework:
-    def __init__(self, robot_interface, ablate=True, actions=AI2THOR_ACTIONS_ANNOTATED , conditions=AI2THOR_PREDICATES, db_path=DEFAULT_DB_PATH, model_name= OPENAI_MODEL, sim=True):
+    def __init__(self, robot_interface, ablate=False, actions=AI2THOR_ACTIONS_ANNOTATED , conditions=AI2THOR_PREDICATES, db_path=DEFAULT_DB_PATH, model_name= OPENAI_MODEL, sim=True):
         self.robot_interface = robot_interface
         self.db_path = db_path
         self.ablate = ablate
@@ -140,6 +140,8 @@ class CognitiveBehaviorTreeFramework:
         self.goal = goal
         self.object_names = set(self.robot_interface.get_object_names())
         self.subgoals = {}
+        if self.robot_interface.save_video:
+            self.robot_interface.image_saver.goal = goal
 
     def connect_db(self):
         return sqlite3.connect(self.db_path)
@@ -407,7 +409,7 @@ class CognitiveBehaviorTreeFramework:
                 print("Successsssssss")
             else:
                 print("exceded maximum retries, task failed")
-
+            self.robot_interface.end_sim()
             return success
 
 
@@ -420,5 +422,11 @@ if __name__ == "__main__":
     cbtf = CognitiveBehaviorTreeFramework(sim)
     cbtf.set_goal('coffee')
     get_wash_mug_in_sink_goal(sim)
-    print(cbtf.manage_task_ordered("bring a mug of coffee to the table"))
+    # sim.image_saver.goal = "Set a place at the table."
+    print(cbtf.manage_task_ordered("Bring a mug of coffee to the table."))
     print([obj for obj in sim.get_graph()['objects'] if 'sinkbasin' in obj['name'].lower()])
+    print(cbtf.llm_interface.conversation_history)
+
+    data = json.dumps(cbtf.llm_interface.conversation_history)
+    with open('/home/liam/dev/cognitive_bt_framework/cognitive_bt_framework/testing/conversation.json', 'w') as f:
+        f.write(data)

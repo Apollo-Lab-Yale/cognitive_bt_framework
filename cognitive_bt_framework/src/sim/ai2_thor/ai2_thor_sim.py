@@ -12,6 +12,7 @@ import cv2
 import re
 from cognitive_bt_framework.src.sim.ai2_thor.utils import get_visible_objects, get_predicates, CLOSE_DISTANCE, find_closest_position, is_in_room, get_yaw_angle, get_vhome_to_thor_dict, get_inf_floor_polygon, \
     NO_VALID_PUT, Event, PUT_COLLISION, AI2THOR_PREDICATES, closest_node, distance_pts
+from cognitive_bt_framework.src.sim.ai2_thor.image_saver import SaveImagesThread
 
 def parse_instantiated_predicate(predicate_str):
     parts = predicate_str.split()

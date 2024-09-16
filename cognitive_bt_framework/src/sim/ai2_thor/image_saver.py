@@ -5,7 +5,7 @@ import time
 from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont
 
-DIR = "/home/liam/dev/llm_task_planning/data/videos/"
+DIR = "/home/liam/dev/cognitive_bt_framework/cognitive_bt_framework/data/videos"
 
 class SaveImagesThread(threading.Thread):
     def __init__(self, controller, frame_rate=10, directory=DIR, planner="unknown", goal = "unknown"):
@@ -33,7 +33,7 @@ class SaveImagesThread(threading.Thread):
         font2 = ImageFont.truetype(font_path, 8)
 
         draw.rectangle((0, 10, 420, 10 + 12), fill="white")
-        draw.text((190, 10), self.goal, fill="black", font=font)
+        draw.text((160, 10), self.goal, fill="black", font=font)
 
         # Add text to image
         draw.rectangle((position[0], position[1], position[0] + 130, position[1] + 12), fill="white")
