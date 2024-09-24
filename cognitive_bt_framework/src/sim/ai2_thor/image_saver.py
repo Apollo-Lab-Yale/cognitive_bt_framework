@@ -4,6 +4,7 @@ import os
 import time
 from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont
+import cv2
 
 DIR = "/home/liam/dev/cognitive_bt_framework/cognitive_bt_framework/data/videos"
 
@@ -20,8 +21,10 @@ class SaveImagesThread(threading.Thread):
         self.keep_running = True
         self.planner = planner
         self.goal = goal
+        event = controller.step(action="GetMapViewCameraProperties")
+        event = controller.step(action="AddThirdPartyCamera", **event.metadata["actionReturn"])
 
-    def overlay_text(self, image, meta, position=(3, 190), font_path="arial.ttf", font_size=12):
+    def overlay_text(self, image, meta, position=(3, 400), font_path="arial.ttf", font_size=12):
         # Initialize the drawing context
         draw = ImageDraw.Draw(image)
 
@@ -32,8 +35,8 @@ class SaveImagesThread(threading.Thread):
         font = ImageFont.truetype(font_path, font_size)
         font2 = ImageFont.truetype(font_path, 8)
 
-        draw.rectangle((0, 10, 420, 10 + 12), fill="white")
-        draw.text((160, 10), self.goal, fill="black", font=font)
+        draw.rectangle((0, 10, 640, 10 + 12), fill="white")
+        draw.text((250, 10), self.goal, fill="black", font=font)
 
         # Add text to image
         draw.rectangle((position[0], position[1], position[0] + 130, position[1] + 12), fill="white")
@@ -53,7 +56,8 @@ class SaveImagesThread(threading.Thread):
         while self.keep_running:
             time.sleep(1/self.frame_rate)
             last_event = self.controller.last_event
-            self.images.append(Image.fromarray(last_event.frame).resize(size=(420, 210)))
+            # self.images.append(Image.fromarray(last_event.frame).resize(size=(420, 210)))
+            self.images.append(Image.fromarray(last_event.events[0].third_party_camera_frames[-1]).resize(size=(640, 420)))
             self.actions.append({"lastActionSuccess": last_event.metadata['lastActionSuccess'], "lastAction": last_event.metadata['lastAction']})
 
         self.directory+=f"_{self.planner}" +f"_{self.goal}"

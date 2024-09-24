@@ -420,13 +420,15 @@ if __name__ == "__main__":
     sim = AI2ThorSimEnv(scene_index=28)
     # goal, _ = get_make_coffee(sim)
     cbtf = CognitiveBehaviorTreeFramework(sim)
-    cbtf.set_goal('coffee')
-    get_wash_mug_in_sink_goal(sim)
-    # sim.image_saver.goal = "Set a place at the table."
-    print(cbtf.manage_task_ordered("Bring a mug of coffee to the table."))
+    cbtf.set_goal('apple')
+    # get_wash_mug_in_sink_goal(sim)
+    sim.image_saver.goal = "Put the apple in the fridge."
+    success = cbtf.manage_task_ordered("Put the apple in the fridge.")
+    print(success)
     print([obj for obj in sim.get_graph()['objects'] if 'sinkbasin' in obj['name'].lower()])
-    print(cbtf.llm_interface.conversation_history)
-
+    # print(cbtf.llm_interface.conversation_history)
+    if not success:
+        exit(0)
     data = json.dumps(cbtf.llm_interface.conversation_history)
     with open('/home/liam/dev/cognitive_bt_framework/cognitive_bt_framework/testing/conversation.json', 'w') as f:
         f.write(data)

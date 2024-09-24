@@ -47,7 +47,7 @@ action_queue = []
 
 
 class AI2ThorSimEnv:
-    def __init__(self, scene_index=-1, width=600, height=600, gridSize=0.25, visibilityDistance=20, single_room='kitchen', save_video=False, use_find = False):
+    def __init__(self, scene_index=-1, width=600, height=600, gridSize=0.25, visibilityDistance=20, single_room='kitchen', save_video=True, use_find = False):
         self.single_room = single_room
         self.scene = None
         self.controller = None
