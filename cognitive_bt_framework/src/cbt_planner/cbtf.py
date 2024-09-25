@@ -156,7 +156,6 @@ class CognitiveBehaviorTreeFramework:
             # isValid = validate_bt(bt_xml)
             # if isValid != 'Valid':
             #     raise isValid
-            print(f'^^^^^^^^^^^^^^^ {task_name} {task_id}')
             self.save_behavior_tree(task_name, bt_xml, task_id)
         return parse_bt_xml(bt_xml , self.actions, self.conditions), bt_xml
 
@@ -192,7 +191,6 @@ class CognitiveBehaviorTreeFramework:
                 print(f'{complete_condition} is NOT satisfied')
             # self.update_known_objects()
             ret = bt_root.execute(self.robot_interface.get_state(), interface=self.robot_interface, memory=self.memory)
-            print(f"^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^66 ret: {ret}")
             if ret[0] == False:
                 print("exiting")
                 return ret
@@ -315,7 +313,6 @@ class CognitiveBehaviorTreeFramework:
                         sub_itter += 1
                         if self.ablate and sub_itter > self.max_goal_retries:
                             break
-                        print(f'#######################################################3 SubItter {sub_itter}')
                         if self.robot_interface.check_goal(self.goal):
                             print('Success!')
                             return True
@@ -426,7 +423,4 @@ if __name__ == "__main__":
     print(cbtf.manage_task_ordered("Bring a mug of coffee to the table."))
     print([obj for obj in sim.get_graph()['objects'] if 'sinkbasin' in obj['name'].lower()])
     print(cbtf.llm_interface.conversation_history)
-    #
-    # data = json.dumps(cbtf.llm_interface.conversation_history)
-    # with open('/home/liam/dev/cognitive_bt_framework/cognitive_bt_framework/testing/conversation.json', 'w') as f:
-    #     f.write(data)
+

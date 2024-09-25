@@ -88,12 +88,7 @@ class LLMInterfaceOpenAI:
                     "url": f"data:image/png;base64,{image}"
                 }
             }
-            # state_msg = {
-            #     "type": "text",
-            #     "text": f"The environmental state associated with image {i} is: {state}"
-            # }
             context_data.append(img_msg)
-            # context_data.append(state_msg)
         context_msg = {
             "role": "user",
             "content": context_data
@@ -165,7 +160,6 @@ class LLMInterfaceOpenAI:
         :param task: The task description.
         :return: A string prompt for the GPT model.
         """
-        print(f"known objects$$$$$$$$$$$$$$$$$$ {known_objects}")
         instruction = {
             "role": 'system',
             'content': 'You are assisting in decomposing a high-level goal for a robot. '
@@ -252,7 +246,6 @@ class LLMInterfaceOpenAI:
             {"role": "system", "content": system_message},
             {"role": "user", "content": f"Corrected Behavior Tree addressing error information: {feedback}. {error_info} in XML:"}
         ]
-        # print(f"{image_context} *************************************")
         if image_context is not None:
             img_msg = [
                 {
@@ -371,7 +364,6 @@ class LLMInterfaceOpenAI:
                                                                user_feedback, known_objects, completed_subtasks,
                                                                example, context, complete_condition, image_context)
         print(prompt)
-        print(f"$$$$$$$$$$$$$$ REFINEMENT PROMPT")
         refined_behavior_tree_xml = self.query_llm(prompt)
         print(f"Refined Behavior Tree: {refined_behavior_tree_xml}")
         for i in range(len(refined_behavior_tree_xml)):
