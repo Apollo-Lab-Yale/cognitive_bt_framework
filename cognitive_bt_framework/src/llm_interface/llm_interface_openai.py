@@ -1,7 +1,6 @@
 import openai
 from openai import OpenAI
-from cognitive_bt_framework.utils import setup_openai, get_openai_key, parse_llm_response, parse_llm_response_ordered
-from cognitive_bt_framework.utils.bt_utils import DOMAIN_DEF
+from cognitive_bt_framework.utils import setup_openai, get_openai_key, parse_llm_response, parse_llm_response_ordered, parse_task_decomposition_and_context_with_subtask_context
 from ratelimit import limits, sleep_and_retry
 from cognitive_bt_framework.src.sim.ai2_thor.utils import AI2THOR_PREDICATES_ANNOTATED
 import json
@@ -184,6 +183,64 @@ class LLMInterfaceOpenAI:
         message = {"role": "user", "content": f"Decompose the following task into detailed subtask steps: {task}"}
         return [instruction, message]
 
+    def generate_combined_task_prompt(self, task, known_objects, context):
+        """
+        Generate a prompt for both task decomposition, relevant subtask contexts, and overall context.
+        :param task: The task description.
+        :param known_objects: List of known objects in the environment.
+        :param context: The visual and environmental context (images).
+        :param states: Additional state information corresponding to the images.
+        :return: A prompt for the GPT model.
+        """
+        instruction = {
+            "role": 'system',
+            'content': 'You are assisting in decomposing a high-level goal for a robot and generating relevant environmental context. '
+                       'The response format must be strictly followed for ease of parsing: '
+                       'Each subgoal should be its own line with NO ADDITIONAL CHARACTERS. '
+                       'The format should be short and underscore separated, similar to a pythonic class name, '
+                       'with no spaces. Provide the most complete decomposition possible. '
+                       'If the task is sufficiently small, do not generate subtasks. Sufficiently reduced '
+                       'subtasks include tasks like empty_trash, clear_counters, empty_dishwasher, etc. '
+                       'Additionally, for each subtask, provide a SINGLE object state condition '
+                       'that defines when the subtask is considered complete any objects included in these condition MUST'
+                       f'come from this list: {known_objects}. Format these conditions '
+                       'as a bulleted list directly under the subtask, each condition on a new line '
+                       'with a dash "-" at the beginning. All conditions should come from '
+                       f'the following list without exception: {AI2THOR_PREDICATES_ANNOTATED} followed '
+                       'by a space, the object that the condition applies to, and a 1 or 0 indicating if the predicate should be true or false. '
+                       'The robot can only hold ONE object at a time. Use the following context to guide task decomposition: '
+                       'In addition, for each subtask, provide a short context specific to that subtask that will help '
+                       'guide behavior tree construction for completing it including help and tips about locating objects.'
+                        ' This context may also contain hints on potential actions or insight into what '
+                        'might be needed to complete the task. The description should be '
+                        'long and easily readable. Include no other text!'
+                       'All context should be provided after the task decomposition and should be proceded with &&&&'
+        }
+
+        context_data = [
+            {"type": "text", "text": "The following images and states are the context for the task to be completed:"}]
+        for i in range(len(context)):
+            image = context[i]
+            img_msg = {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/png;base64,{image}"
+                }
+            }
+            context_data.append(img_msg)
+
+        context_msg = {
+            "role": "user",
+            "content": context_data
+        }
+
+        message = {
+            "role": "user",
+            "content": f"Decompose the following task into detailed subtask steps, and provide relevant subtask-specific context: {task}."
+        }
+
+        return [instruction, context_msg, message]
+
     def generate_behavior_tree_refinement_prompt(self, big_task, task, actions, conditions, original_bt_xml, feedback,
                                                  known_objects, completed_subtasks, example, context, complete_condition,
                                                  image_context, error_category=None, state=None):
@@ -326,6 +383,18 @@ class LLMInterfaceOpenAI:
         prompt = self.generate_prompt_htn_ordered(task, known_objects, context)
         decomposition = self.query_llm(prompt)
         return parse_llm_response_ordered(decomposition)
+
+    def get_task_decomposition_ordered_context(self, task, known_objects, context):
+        """
+        Get the task decomposition from the GPT model.
+        :param task: The task description.
+        :return: A list or string of decomposed tasks.
+        """
+        prompt = self.generate_combined_task_prompt(task, known_objects, context)
+        decomposition = self.query_llm(prompt)
+        print(decomposition)
+        context = decomposition.split('&&&&')[1]
+        return parse_llm_response_ordered(decomposition.split('&&&&')[0]), context
 
     def get_task_id(self, task, context, states):
         prompt = self.generate_prompt_task_id(task, context, states)

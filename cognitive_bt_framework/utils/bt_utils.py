@@ -3,7 +3,7 @@ from cognitive_bt_framework.src.sim.ai2_thor.utils import AI2THOR_NO_TARGET, AI2
 
 BASE_EXAMPLE = ''
 FORMAT_EXAMPLE = ''
-
+DOMAIN_DEF = ''
 
 class Node:
     def __init__(self, name):
