@@ -274,10 +274,10 @@ class CognitiveBehaviorTreeFramework:
             itter += 1
             try:
                 context, states = self.robot_interface.get_context(4)
-                task_name, context = self.llm_interface.get_task_id(task_name, context, states)
-                decomposition = self.llm_interface.get_task_decomposition_ordered(task_name,
-                                                                                  self.robot_interface.object_names,
-                                                                                  context)
+                decomposition, context = (
+                    self.llm_interface.get_task_decomposition_ordered_context(task_name,
+                                                                              self.robot_interface.object_names,
+                                                                              context))
                 print(decomposition)
 
                 for subtask_name, details in decomposition.items():
@@ -422,5 +422,4 @@ if __name__ == "__main__":
     # sim.image_saver.goal = "Set a place at the table."
     print(cbtf.manage_task_ordered("Bring a mug of coffee to the table."))
     print([obj for obj in sim.get_graph()['objects'] if 'sinkbasin' in obj['name'].lower()])
-    print(cbtf.llm_interface.conversation_history)
 
