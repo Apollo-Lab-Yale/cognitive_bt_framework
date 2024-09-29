@@ -19,7 +19,6 @@ from cognitive_bt_framework.utils.goal_gen_aithor import get_wash_mug_in_sink_go
 from cognitive_bt_framework.src.sim.ai2_thor.utils import AI2THOR_ACTIONS, AI2THOR_PREDICATES, AI2THOR_ACTIONS_ANNOTATED
 from cognitive_bt_framework.src.sim.ai2_thor.ai2_thor_sim import AI2ThorSimEnv
 from cognitive_bt_framework.src.cbt_planner.memory import Memory
-from cognitive_bt_framework.src.bt_validation.validate import validate_bt
 from cognitive_bt_framework.utils.logic_utils import cosine_similarity, stop_words
 from cognitive_bt_framework.src.cbt_planner.sub_task import SubTask
 from sklearn.feature_extraction.text import TfidfVectorizer
